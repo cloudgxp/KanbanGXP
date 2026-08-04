@@ -1,0 +1,13 @@
+node_modules/
+build/
+dist/
+coverage/
+.DS_Store
+*.log
+.env*
+!.env.example
+
+# Prevent GitHub sync from removing external configurations
+.github/
+wrangler.toml
+wrangler/
