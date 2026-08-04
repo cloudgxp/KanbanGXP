@@ -1,0 +1,5 @@
+{
+  "name": "KanbanGXP",
+  "description": "A minimalist Kanban-style goal planner for Work and Life, stored entirely in your browser.",
+  "requestFramePermissions": []
+}
