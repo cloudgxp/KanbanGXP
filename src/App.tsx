@@ -27,7 +27,6 @@ import {
   Heart, 
   MoreVertical,
   ArrowLeft,
-  ArrowRight,
   Calendar,
   CheckCircle2,
   Circle,
@@ -78,15 +77,20 @@ interface GoalCardProps {
 interface SortableGoalCardProps {
   goal: Goal;
   labels: Label[];
+  sprints: Sprint[];
   onDelete: (id: string) => void;
   onEdit: (goal: Goal) => void;
   onToggleChecklist: (goalId: string, itemId: string) => void;
   onUpdateNumeric: (goalId: string, delta: number) => void;
   onUpdateLifecycle: (id: string, status: GoalLifecycleStatus) => void;
   onTogglePlannedForToday: (id: string) => void;
+  onAssignSprint: (goalId: string, sprintId: string | null) => void;
 }
 
-const SortableGoalCard = ({ goal, labels, onDelete, onEdit, onToggleChecklist, onUpdateNumeric, onUpdateLifecycle, onTogglePlannedForToday }: SortableGoalCardProps) => {
+const SortableGoalCard = ({ goal, labels, sprints, onDelete, onEdit, onToggleChecklist, onUpdateNumeric, onUpdateLifecycle, onTogglePlannedForToday, onAssignSprint }: SortableGoalCardProps) => {
+  const [isSprintMenuOpen, setIsSprintMenuOpen] = useState(false);
+  const sprintMenuRef = useRef<HTMLDivElement>(null);
+  const sprintButtonRef = useRef<HTMLButtonElement>(null);
   const {
     attributes,
     listeners,
@@ -106,6 +110,33 @@ const SortableGoalCard = ({ goal, labels, onDelete, onEdit, onToggleChecklist, o
     transform: CSS.Translate.toString(transform),
     transition,
   };
+
+  const availableSprints = sprints.filter(sprint =>
+    sprint.projectId === goal.projectId && (sprint.status === 'active' || sprint.status === 'planned')
+  );
+  const currentSprint = goal.sprintId ? sprints.find(sprint => sprint.id === goal.sprintId) : undefined;
+  const sprintActionLabel = currentSprint ? 'Change sprint' : 'Add to sprint';
+
+  useEffect(() => {
+    if (!isSprintMenuOpen) return;
+
+    const handlePointerDown = (event: PointerEvent) => {
+      if (!sprintMenuRef.current?.contains(event.target as Node)) setIsSprintMenuOpen(false);
+    };
+    const handleKeyDown = (event: KeyboardEvent) => {
+      if (event.key === 'Escape') {
+        setIsSprintMenuOpen(false);
+        sprintButtonRef.current?.focus();
+      }
+    };
+
+    document.addEventListener('pointerdown', handlePointerDown);
+    document.addEventListener('keydown', handleKeyDown);
+    return () => {
+      document.removeEventListener('pointerdown', handlePointerDown);
+      document.removeEventListener('keydown', handleKeyDown);
+    };
+  }, [isSprintMenuOpen]);
 
   if (isDragging) {
     return (
@@ -173,7 +204,10 @@ const SortableGoalCard = ({ goal, labels, onDelete, onEdit, onToggleChecklist, o
             </div>
           )}
         </div>
-        <div className="flex items-center gap-1 opacity-0 group-hover:opacity-100 transition-opacity absolute top-2 right-2">
+        <div className={cn(
+          "absolute right-2 top-2 flex items-center gap-1 opacity-0 transition-opacity group-hover:opacity-100 group-focus-within:opacity-100",
+          isSprintMenuOpen && "z-30 opacity-100"
+        )}>
           <div 
             {...attributes} 
             {...listeners}
@@ -181,6 +215,89 @@ const SortableGoalCard = ({ goal, labels, onDelete, onEdit, onToggleChecklist, o
             onClick={(e) => e.stopPropagation()}
           >
             <GripVertical size={14} />
+          </div>
+          <div ref={sprintMenuRef} className="relative" onClick={(event) => event.stopPropagation()}>
+            <button
+              ref={sprintButtonRef}
+              type="button"
+              disabled={!goal.projectId}
+              onClick={() => setIsSprintMenuOpen(open => !open)}
+              className={cn(
+                "rounded p-1 transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-indigo-500",
+                currentSprint ? "text-indigo-500 hover:text-indigo-700" : "text-slate-300 hover:text-indigo-500",
+                "disabled:cursor-not-allowed disabled:opacity-30"
+              )}
+              aria-label={sprintActionLabel}
+              aria-haspopup="menu"
+              aria-expanded={isSprintMenuOpen}
+              title={sprintActionLabel}
+            >
+              <Zap size={14} className={currentSprint ? "fill-indigo-100" : ""} aria-hidden="true" />
+            </button>
+
+            {isSprintMenuOpen && (
+              <div
+                role="menu"
+                aria-label="Sprint assignment"
+                className="absolute right-0 top-full z-40 mt-2 w-64 rounded-2xl border border-slate-200 bg-white p-2 text-left shadow-xl"
+              >
+                <div className="px-2 py-2">
+                  <p className="text-xs font-bold text-slate-800">{sprintActionLabel}</p>
+                  <p className="mt-0.5 truncate text-[10px] text-slate-500">
+                    {currentSprint ? `Current: ${currentSprint.name}` : 'Choose an active or upcoming sprint'}
+                  </p>
+                </div>
+
+                <div className="max-h-52 overflow-y-auto">
+                  {availableSprints.length > 0 ? availableSprints.map(sprint => {
+                    const selected = sprint.id === goal.sprintId;
+                    return (
+                      <button
+                        key={sprint.id}
+                        type="button"
+                        role="menuitemradio"
+                        aria-checked={selected}
+                        onClick={() => {
+                          onAssignSprint(goal.id, sprint.id);
+                          setIsSprintMenuOpen(false);
+                        }}
+                        className={cn(
+                          "flex w-full items-center gap-2 rounded-xl px-2.5 py-2 text-left transition-colors hover:bg-slate-50 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-indigo-500",
+                          selected && "bg-indigo-50"
+                        )}
+                      >
+                        <span className={cn(
+                          "flex h-5 w-5 shrink-0 items-center justify-center rounded-full border",
+                          selected ? "border-indigo-500 bg-indigo-500 text-white" : "border-slate-200 text-transparent"
+                        )}>
+                          <Check size={11} aria-hidden="true" />
+                        </span>
+                        <span className="min-w-0 flex-1">
+                          <span className="block truncate text-xs font-semibold text-slate-800">{sprint.name}</span>
+                          <span className="block text-[9px] font-medium capitalize text-slate-400">{sprint.status}</span>
+                        </span>
+                      </button>
+                    );
+                  }) : (
+                    <p className="px-2.5 py-3 text-xs text-slate-500">No active or upcoming sprints.</p>
+                  )}
+                </div>
+
+                {currentSprint && (
+                  <button
+                    type="button"
+                    role="menuitem"
+                    onClick={() => {
+                      onAssignSprint(goal.id, null);
+                      setIsSprintMenuOpen(false);
+                    }}
+                    className="mt-1 w-full border-t border-slate-100 px-2.5 py-2.5 text-left text-xs font-semibold text-rose-600 transition-colors hover:bg-rose-50 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-rose-500"
+                  >
+                    Remove from sprint
+                  </button>
+                )}
+              </div>
+            )}
           </div>
           <button
             onClick={(e) => {
@@ -524,6 +641,7 @@ interface KanbanColumnProps {
   title: string;
   goals: Goal[];
   labels: Label[];
+  sprints: Sprint[];
   onDelete: (id: string) => void;
   onAdd: (status: GoalStatus) => void;
   onEdit: (goal: Goal) => void;
@@ -531,9 +649,10 @@ interface KanbanColumnProps {
   onUpdateNumeric: (goalId: string, delta: number) => void;
   onUpdateLifecycle: (id: string, status: GoalLifecycleStatus) => void;
   onTogglePlannedForToday: (id: string) => void;
+  onAssignSprint: (goalId: string, sprintId: string | null) => void;
 }
 
-const KanbanColumn: React.FC<KanbanColumnProps> = ({ id, title, goals, labels, onDelete, onAdd, onEdit, onToggleChecklist, onUpdateNumeric, onUpdateLifecycle, onTogglePlannedForToday }) => {
+const KanbanColumn: React.FC<KanbanColumnProps> = ({ id, title, goals, labels, sprints, onDelete, onAdd, onEdit, onToggleChecklist, onUpdateNumeric, onUpdateLifecycle, onTogglePlannedForToday, onAssignSprint }) => {
   const { setNodeRef } = useSortable({
     id: id,
     data: {
@@ -543,51 +662,381 @@ const KanbanColumn: React.FC<KanbanColumnProps> = ({ id, title, goals, labels, o
   });
 
   return (
-    <div className="flex flex-col gap-4 w-[320px] shrink-0">
-      <div className="flex items-center justify-between px-2">
-        <div className="flex items-center gap-2">
-          <Circle size={16} className="text-indigo-400" />
-          <h3 className="font-bold text-slate-700 uppercase tracking-tight text-sm">{title}</h3>
-          <span className="bg-slate-200 text-slate-600 text-[10px] px-1.5 py-0.5 rounded-full font-bold">
+    <section ref={setNodeRef} className="kanban-column group/column" aria-labelledby={`column-${id}-title`}>
+      <div className="kanban-column__header">
+        <div className="flex min-w-0 items-center gap-2">
+          <Circle size={16} className="shrink-0 text-accent" aria-hidden="true" />
+          <h3 id={`column-${id}-title`} className="truncate text-sm font-bold uppercase tracking-tight text-text">
+            {title}
+          </h3>
+          <span
+            className="inline-flex min-w-6 shrink-0 items-center justify-center rounded-full border border-border bg-card px-2 py-0.5 text-xs font-bold text-text-muted"
+            aria-label={`${goals.length} ${goals.length === 1 ? 'goal' : 'goals'}`}
+          >
             {goals.length}
           </span>
         </div>
-        <button 
-          onClick={() => onAdd(id)}
-          className="p-1 hover:bg-slate-200 rounded-md text-slate-500 transition-colors"
-        >
-          <Plus size={16} />
-        </button>
+        {goals.length > 0 && (
+          <button
+            type="button"
+            onClick={() => onAdd(id)}
+            className="inline-flex h-9 w-9 shrink-0 items-center justify-center rounded-lg border border-transparent text-text-muted opacity-100 transition-all hover:border-border hover:bg-card hover:text-accent focus-visible:border-border focus-visible:bg-card focus-visible:text-accent focus-visible:opacity-100 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent focus-visible:ring-offset-2 sm:pointer-events-none sm:opacity-0 sm:group-hover/column:pointer-events-auto sm:group-hover/column:opacity-100 sm:focus-visible:pointer-events-auto"
+            aria-label={`Add goal to ${title}`}
+            title={`Add goal to ${title}`}
+          >
+            <Plus size={17} aria-hidden="true" />
+          </button>
+        )}
       </div>
 
-      <div ref={setNodeRef} className="kanban-column">
+      <div className="kanban-column__body">
         <SortableContext items={goals.map(g => g.id)} strategy={verticalListSortingStrategy}>
-          <AnimatePresence mode="popLayout">
-            {goals.map((goal) => (
-              <motion.div
-                key={goal.id}
-                layout
-                initial={{ opacity: 0, y: 10 }}
-                animate={{ opacity: 1, y: 0 }}
-                exit={{ opacity: 0, scale: 0.95 }}
-                transition={{ duration: 0.2 }}
-              >
-                <SortableGoalCard 
-                  goal={goal} 
-                  labels={labels}
-                  onDelete={onDelete}
-                  onEdit={onEdit}
-                  onToggleChecklist={onToggleChecklist}
-                  onUpdateNumeric={onUpdateNumeric}
-                  onUpdateLifecycle={onUpdateLifecycle}
-                  onTogglePlannedForToday={onTogglePlannedForToday}
-                />
-              </motion.div>
-            ))}
-          </AnimatePresence>
+          {goals.length === 0 ? (
+            <div className="kanban-empty-state">
+              <div className="flex h-11 w-11 items-center justify-center rounded-xl border border-border bg-card text-text-muted">
+                <Target size={20} aria-hidden="true" />
+              </div>
+              <div>
+                <p className="font-semibold text-text">No goals in this stage</p>
+                <button
+                  type="button"
+                  onClick={() => onAdd(id)}
+                  className="mt-1 rounded-sm text-sm font-medium text-accent underline decoration-accent/40 underline-offset-4 transition-colors hover:decoration-accent focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent focus-visible:ring-offset-2"
+                  aria-label={`Create a goal in ${title}`}
+                >
+                  Create a goal
+                </button>
+              </div>
+            </div>
+          ) : (
+            <AnimatePresence mode="popLayout">
+              {goals.map((goal) => (
+                <motion.div
+                  key={goal.id}
+                  layout
+                  initial={{ opacity: 0, y: 10 }}
+                  animate={{ opacity: 1, y: 0 }}
+                  exit={{ opacity: 0, scale: 0.95 }}
+                  transition={{ duration: 0.2 }}
+                >
+                  <SortableGoalCard 
+                    goal={goal} 
+                    labels={labels}
+                    sprints={sprints}
+                    onDelete={onDelete}
+                    onEdit={onEdit}
+                    onToggleChecklist={onToggleChecklist}
+                    onUpdateNumeric={onUpdateNumeric}
+                    onUpdateLifecycle={onUpdateLifecycle}
+                    onTogglePlannedForToday={onTogglePlannedForToday}
+                    onAssignSprint={onAssignSprint}
+                  />
+                </motion.div>
+              ))}
+            </AnimatePresence>
+          )}
         </SortableContext>
       </div>
+    </section>
+  );
+};
+
+interface SidebarItemProps {
+  icon: React.ReactNode;
+  label: string;
+  description?: string;
+  ariaLabel?: string;
+  title?: string;
+  active?: boolean;
+  activeTone?: 'indigo' | 'amber';
+  className?: string;
+  onClick: () => void;
+}
+
+const SidebarItem: React.FC<SidebarItemProps> = ({ icon, label, description, ariaLabel, title, active = false, activeTone = 'indigo', className, onClick }) => (
+  <button
+    type="button"
+    onClick={onClick}
+    aria-pressed={active}
+    aria-label={ariaLabel ?? label}
+    title={title}
+    className={cn(
+      "flex w-full items-center gap-3 rounded-xl px-3 py-2 text-left text-sm font-semibold transition-all",
+      active
+        ? activeTone === 'amber'
+          ? "bg-amber-50 text-amber-700 shadow-sm ring-1 ring-amber-200"
+          : "bg-indigo-50 text-indigo-700"
+        : "text-slate-500 hover:bg-slate-50 hover:text-slate-700",
+      className
+    )}
+  >
+    {icon}
+    <span className="min-w-0 flex-1">
+      <span className="block truncate">{label}</span>
+      {description && <span className="block truncate text-[9px] font-normal text-slate-400">{description}</span>}
+    </span>
+  </button>
+);
+
+interface WorkflowTemplate {
+  id: string;
+  name: string;
+  description: string;
+  stages: string[];
+}
+
+const WORKFLOW_TEMPLATES: WorkflowTemplate[] = [
+  {
+    id: 'simple',
+    name: 'Simple',
+    description: 'A lightweight flow for straightforward work.',
+    stages: ['To Do', 'In Progress', 'Done'],
+  },
+  {
+    id: 'agile',
+    name: 'Agile',
+    description: 'A delivery workflow with preparation and review.',
+    stages: ['Backlog', 'Ready', 'In Progress', 'Review', 'Done'],
+  },
+  {
+    id: 'content',
+    name: 'Content',
+    description: 'Move ideas from planning through publication.',
+    stages: ['Ideas', 'Planned', 'Creating', 'Review', 'Published'],
+  },
+  {
+    id: 'personal',
+    name: 'Personal',
+    description: 'A focused flow for personal priorities.',
+    stages: ['Someday', 'Next', 'Doing', 'Done'],
+  },
+];
+
+const workflowMatchesStages = (columns: WorkflowColumn[], stages: string[]) =>
+  columns.length === stages.length && columns.every((column, index) => column.title.trim().toLocaleLowerCase() === stages[index].toLocaleLowerCase());
+
+const buildWorkflowFromTemplate = (baseColumns: WorkflowColumn[], template: WorkflowTemplate): WorkflowColumn[] => {
+  const usedIds = new Set<string>();
+  return template.stages.map((stage, index) => {
+    const matchingColumn = baseColumns.find(column =>
+      !usedIds.has(column.id) && column.title.trim().toLocaleLowerCase() === stage.toLocaleLowerCase()
+    );
+    if (matchingColumn) {
+      usedIds.add(matchingColumn.id);
+      return { ...matchingColumn, title: stage };
+    }
+
+    const baseId = `template-${template.id}-${stage.toLocaleLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/(^-|-$)/g, '') || index + 1}`;
+    let id = baseId;
+    let suffix = 2;
+    while (usedIds.has(id) || baseColumns.some(column => column.id === id)) {
+      id = `${baseId}-${suffix}`;
+      suffix += 1;
+    }
+    usedIds.add(id);
+    return { id, title: stage };
+  });
+};
+
+const getWorkflowValidationError = (columns: WorkflowColumn[]) => {
+  const titles = columns.map(column => column.title.trim());
+  if (titles.length === 0 || titles.some(title => !title)) return 'Every workflow needs at least one named stage.';
+  if (new Set(titles.map(title => title.toLocaleLowerCase())).size !== titles.length) return 'Stage names must be unique.';
+  return null;
+};
+
+interface SortableWorkflowStageProps {
+  column: WorkflowColumn;
+  canDelete: boolean;
+  onRename: (id: string, title: string) => void;
+  onDelete: (id: string) => void;
+}
+
+const SortableWorkflowStage: React.FC<SortableWorkflowStageProps> = ({ column, canDelete, onRename, onDelete }) => {
+  const { attributes, listeners, setNodeRef, transform, transition, isDragging } = useSortable({ id: column.id });
+
+  return (
+    <div
+      ref={setNodeRef}
+      style={{ transform: CSS.Transform.toString(transform), transition }}
+      className={cn(
+        "flex items-center gap-2 rounded-2xl border border-slate-200 bg-slate-50 p-2",
+        isDragging && "z-10 border-indigo-300 bg-indigo-50 shadow-lg"
+      )}
+    >
+      <button
+        type="button"
+        {...attributes}
+        {...listeners}
+        className="cursor-grab rounded-lg p-2 text-slate-400 transition-colors hover:bg-white hover:text-indigo-600 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-indigo-500 active:cursor-grabbing"
+        aria-label={`Reorder ${column.title || 'unnamed'} stage`}
+      >
+        <GripVertical size={16} aria-hidden="true" />
+      </button>
+      <input
+        type="text"
+        value={column.title}
+        onChange={(event) => onRename(column.id, event.target.value)}
+        aria-label={`Rename ${column.title || 'workflow'} stage`}
+        className="min-w-0 flex-1 rounded-xl border border-transparent bg-white px-3 py-2 text-sm font-semibold text-slate-800 outline-none transition-colors focus:border-indigo-400 focus:ring-2 focus:ring-indigo-500/10"
+      />
+      <button
+        type="button"
+        onClick={() => onDelete(column.id)}
+        disabled={!canDelete}
+        className="rounded-lg p-2 text-slate-400 transition-colors hover:bg-rose-50 hover:text-rose-600 disabled:cursor-not-allowed disabled:opacity-25"
+        aria-label={`Delete ${column.title || 'unnamed'} stage`}
+        title={canDelete ? 'Delete stage' : 'A workflow needs at least one stage'}
+      >
+        <Trash2 size={15} aria-hidden="true" />
+      </button>
     </div>
+  );
+};
+
+interface WorkflowConfiguratorProps {
+  columns: WorkflowColumn[];
+  baseColumns: WorkflowColumn[];
+  error: string | null;
+  onChange: (columns: WorkflowColumn[]) => void;
+  onError: (error: string | null) => void;
+}
+
+const WorkflowConfigurator: React.FC<WorkflowConfiguratorProps> = ({ columns, baseColumns, error, onChange, onError }) => {
+  const matchingTemplate = WORKFLOW_TEMPLATES.find(template => workflowMatchesStages(columns, template.stages));
+  const [tab, setTab] = useState<'templates' | 'custom'>(matchingTemplate ? 'templates' : 'custom');
+  const [selectedTemplateId, setSelectedTemplateId] = useState<string | null>(matchingTemplate?.id ?? null);
+  const [newStageName, setNewStageName] = useState('');
+  const workflowSensors = useSensors(
+    useSensor(PointerSensor, { activationConstraint: { distance: 6 } }),
+    useSensor(KeyboardSensor, { coordinateGetter: sortableKeyboardCoordinates })
+  );
+
+  const selectTemplate = (template: WorkflowTemplate) => {
+    setSelectedTemplateId(template.id);
+    onChange(buildWorkflowFromTemplate(baseColumns, template));
+    onError(null);
+  };
+
+  const addStage = (event: React.FormEvent) => {
+    event.preventDefault();
+    const title = newStageName.trim();
+    if (!title) return;
+    if (columns.some(column => column.title.trim().toLocaleLowerCase() === title.toLocaleLowerCase())) {
+      onError('Stage names must be unique.');
+      return;
+    }
+    onChange([...columns, { id: `column-${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 6)}`, title }]);
+    setNewStageName('');
+    onError(null);
+  };
+
+  const handleDragEnd = (event: DragEndEvent) => {
+    const { active, over } = event;
+    if (!over || active.id === over.id) return;
+    const activeIndex = columns.findIndex(column => column.id === active.id);
+    const overIndex = columns.findIndex(column => column.id === over.id);
+    if (activeIndex >= 0 && overIndex >= 0) onChange(arrayMove(columns, activeIndex, overIndex));
+  };
+
+  return (
+    <section aria-labelledby="project-workflow-heading" className="rounded-2xl border border-slate-200 bg-slate-50/70 p-4 sm:p-5">
+      <div>
+        <h3 id="project-workflow-heading" className="text-sm font-bold text-slate-900">Workflow</h3>
+        <p className="mt-1 text-xs text-slate-500">Choose a template or create stages for this project.</p>
+      </div>
+
+      <div className="mt-4 grid grid-cols-2 rounded-xl bg-slate-200/70 p-1" role="tablist" aria-label="Workflow configuration mode">
+        {(['templates', 'custom'] as const).map(option => (
+          <button
+            key={option}
+            type="button"
+            role="tab"
+            aria-selected={tab === option}
+            onClick={() => setTab(option)}
+            className={cn(
+              "rounded-lg px-3 py-2 text-xs font-bold capitalize transition-all focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-indigo-500",
+              tab === option ? "bg-white text-indigo-700 shadow-sm" : "text-slate-500 hover:text-slate-800"
+            )}
+          >
+            {option}
+          </button>
+        ))}
+      </div>
+
+      {tab === 'templates' ? (
+        <div className="mt-4 grid gap-2 sm:grid-cols-2" role="radiogroup" aria-label="Workflow templates">
+          {WORKFLOW_TEMPLATES.map(template => {
+            const selected = selectedTemplateId === template.id && workflowMatchesStages(columns, template.stages);
+            return (
+              <button
+                key={template.id}
+                type="button"
+                role="radio"
+                aria-checked={selected}
+                onClick={() => selectTemplate(template)}
+                className={cn(
+                  "rounded-xl border-2 p-3 text-left transition-all focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-indigo-500 focus-visible:ring-offset-2",
+                  selected ? "border-indigo-500 bg-indigo-50" : "border-slate-200 bg-white hover:border-slate-300"
+                )}
+              >
+                <div className="flex items-center justify-between gap-2">
+                  <span className="text-sm font-bold text-slate-900">{template.name}</span>
+                  {selected && <CheckCircle2 size={16} className="shrink-0 text-indigo-600" aria-label="Selected" />}
+                </div>
+                <p className="mt-1 text-[11px] text-slate-500">{template.stages.join(' → ')}</p>
+              </button>
+            );
+          })}
+        </div>
+      ) : (
+        <div className="mt-4">
+          <p className="mb-2 text-xs text-slate-500">Drag stages to reorder them.</p>
+          <DndContext sensors={workflowSensors} collisionDetection={closestCorners} onDragEnd={handleDragEnd}>
+            <SortableContext items={columns.map(column => column.id)} strategy={verticalListSortingStrategy}>
+              <div className="space-y-2">
+                {columns.map(column => (
+                  <SortableWorkflowStage
+                    key={column.id}
+                    column={column}
+                    canDelete={columns.length > 1}
+                    onRename={(id, title) => {
+                      onChange(columns.map(item => item.id === id ? { ...item, title } : item));
+                      onError(null);
+                    }}
+                    onDelete={(id) => {
+                      if (columns.length > 1) onChange(columns.filter(item => item.id !== id));
+                      onError(null);
+                    }}
+                  />
+                ))}
+              </div>
+            </SortableContext>
+          </DndContext>
+
+          <form onSubmit={addStage} className="mt-3 flex flex-col gap-2 sm:flex-row">
+            <input
+              type="text"
+              value={newStageName}
+              onChange={(event) => setNewStageName(event.target.value)}
+              placeholder="New stage, e.g. Review"
+              aria-label="New workflow stage name"
+              className="min-w-0 flex-1 rounded-xl border border-slate-200 bg-white px-3 py-2 text-sm font-medium text-slate-900 outline-none focus:border-indigo-500 focus:ring-2 focus:ring-indigo-500/10"
+            />
+            <button
+              type="submit"
+              disabled={!newStageName.trim()}
+              className="inline-flex items-center justify-center gap-2 rounded-xl border border-slate-200 bg-white px-3 py-2 text-sm font-bold text-slate-700 hover:bg-slate-50 disabled:cursor-not-allowed disabled:opacity-40"
+            >
+              <Plus size={15} aria-hidden="true" />
+              Add stage
+            </button>
+          </form>
+        </div>
+      )}
+
+      {error && <p role="alert" className="mt-3 text-xs font-semibold text-rose-600">{error}</p>}
+    </section>
   );
 };
 
@@ -598,15 +1047,15 @@ export default function App() {
   const [projects, setProjects] = useState<Project[]>([]);
   const [activeProjectId, setActiveProjectId] = useState<string>('');
   const [goals, setGoals] = useState<Goal[]>([]);
-  const [workflowColumns, setWorkflowColumns] = useState<WorkflowColumn[]>(DEFAULT_WORKFLOW_COLUMNS);
   const [activeGoal, setActiveGoal] = useState<Goal | null>(null);
   const [isModalOpen, setIsModalOpen] = useState(false);
   const [isProjectModalOpen, setIsProjectModalOpen] = useState(false);
   const [newGoalStatus, setNewGoalStatus] = useState<GoalStatus>(DEFAULT_WORKFLOW_COLUMNS[0].id);
-  const [isWorkflowModalOpen, setIsWorkflowModalOpen] = useState(false);
-  const [newColumnName, setNewColumnName] = useState('');
-  const [columnPendingDeletion, setColumnPendingDeletion] = useState<string | null>(null);
-  const [columnMoveDestination, setColumnMoveDestination] = useState<string>('');
+  const [projectWorkflowColumns, setProjectWorkflowColumns] = useState<WorkflowColumn[]>(DEFAULT_WORKFLOW_COLUMNS);
+  const [projectWorkflowBaseColumns, setProjectWorkflowBaseColumns] = useState<WorkflowColumn[]>(DEFAULT_WORKFLOW_COLUMNS);
+  const [projectWorkflowError, setProjectWorkflowError] = useState<string | null>(null);
+  const [pendingWorkflowColumns, setPendingWorkflowColumns] = useState<WorkflowColumn[] | null>(null);
+  const [workflowGoalMigrations, setWorkflowGoalMigrations] = useState<Record<string, GoalStatus>>({});
   
   // Form state for goals
   const [title, setTitle] = useState('');
@@ -642,9 +1091,14 @@ export default function App() {
 
   // Form state for sprints
   const [sprintName, setSprintName] = useState('');
+  const [sprintProjectId, setSprintProjectId] = useState('');
   const [sprintLength, setSprintLength] = useState<SprintLength>('2-weeks');
   const [sprintStartDate, setSprintStartDate] = useState<string>(new Date().toISOString().split('T')[0]);
   const [sprintEndDate, setSprintEndDate] = useState<string>('');
+  const [sprintFormError, setSprintFormError] = useState<string | null>(null);
+  const [pendingSprintMove, setPendingSprintMove] = useState<{ sprint: Sprint; goalsToMove: Goal[]; goalsNeedingStage: Goal[] } | null>(null);
+  const [sprintMoveGoalStageId, setSprintMoveGoalStageId] = useState('');
+  const [projectPendingDeletion, setProjectPendingDeletion] = useState<string | null>(null);
 
   // Import/Export state
   const [isImportModalOpen, setIsImportModalOpen] = useState(false);
@@ -677,11 +1131,27 @@ export default function App() {
     const savedSprints = getLocalStorageItemWithMigration(STORAGE_KEYS.sprints, PREVIOUS_STORAGE_KEYS.sprints);
     const savedLabels = getLocalStorageItemWithMigration(STORAGE_KEYS.labels, PREVIOUS_STORAGE_KEYS.labels);
     const savedWorkflowColumns = getLocalStorageItemWithMigration(STORAGE_KEYS.workflowColumns, PREVIOUS_STORAGE_KEYS.workflowColumns);
+
+    let legacyWorkflowColumns: WorkflowColumn[] = DEFAULT_WORKFLOW_COLUMNS.map(column => ({ ...column }));
+    if (savedWorkflowColumns) {
+      try {
+        const parsedColumns = JSON.parse(savedWorkflowColumns);
+        if (Array.isArray(parsedColumns) && parsedColumns.length > 0) legacyWorkflowColumns = parsedColumns;
+      } catch (e) {
+        console.error('Failed to parse workflow columns', e);
+      }
+    }
     
     let loadedProjects: Project[] = [];
     if (savedProjects) {
       try {
-        loadedProjects = JSON.parse(savedProjects);
+        const parsedProjects = JSON.parse(savedProjects);
+        loadedProjects = Array.isArray(parsedProjects) ? parsedProjects.map((project: Partial<Project>) => ({
+          ...project,
+          workflowColumns: Array.isArray(project.workflowColumns) && project.workflowColumns.length > 0
+            ? project.workflowColumns
+            : legacyWorkflowColumns.map(column => ({ ...column })),
+        })) as Project[] : [];
         setProjects(loadedProjects);
       } catch (e) {
         console.error('Failed to parse projects', e);
@@ -694,35 +1164,40 @@ export default function App() {
         id: 'default',
         name: 'My First Project',
         createdAt: Date.now(),
+        workflowColumns: legacyWorkflowColumns.map(column => ({ ...column })),
       };
+      loadedProjects = [defaultProject];
       setProjects([defaultProject]);
       setActiveProjectId(defaultProject.id);
     } else {
       setActiveProjectId(loadedProjects[0].id);
     }
 
+    let loadedGoals: Goal[] = [];
     if (savedGoals) {
       try {
-        setGoals(JSON.parse(savedGoals));
+        const parsedGoals = JSON.parse(savedGoals);
+        loadedGoals = Array.isArray(parsedGoals) ? parsedGoals : [];
+        setGoals(loadedGoals);
       } catch (e) {
         console.error('Failed to parse goals', e);
       }
     }
 
-    if (savedWorkflowColumns) {
-      try {
-        const parsedColumns = JSON.parse(savedWorkflowColumns);
-        if (Array.isArray(parsedColumns) && parsedColumns.length > 0) {
-          setWorkflowColumns(parsedColumns);
-        }
-      } catch (e) {
-        console.error('Failed to parse workflow columns', e);
-      }
-    }
-
     if (savedSprints) {
       try {
-        setSprints(JSON.parse(savedSprints));
+        const parsedSprints = JSON.parse(savedSprints);
+        const fallbackProjectId = loadedProjects[0]?.id ?? '';
+        const migratedSprints: Sprint[] = Array.isArray(parsedSprints) ? parsedSprints.map((sprint: Partial<Sprint>) => {
+          const inferredProjectId = loadedGoals.find(goal => goal.sprintId === sprint.id)?.projectId;
+          const projectId = sprint.projectId && loadedProjects.some(project => project.id === sprint.projectId)
+            ? sprint.projectId
+            : inferredProjectId && loadedProjects.some(project => project.id === inferredProjectId)
+              ? inferredProjectId
+              : fallbackProjectId;
+          return { ...sprint, projectId } as Sprint;
+        }) : [];
+        setSprints(migratedSprints);
       } catch (e) {
         console.error('Failed to parse sprints', e);
       }
@@ -769,6 +1244,7 @@ export default function App() {
   // Save to localStorage
   useEffect(() => {
     if (!hasLoadedStorage) return;
+    const activeWorkflowForLegacy = projects.find(project => project.id === activeProjectId)?.workflowColumns ?? DEFAULT_WORKFLOW_COLUMNS;
     if (projects.length > 0) {
       if (!setLocalStorageItem(STORAGE_KEYS.projects, JSON.stringify(projects))) setStorageAvailable(false);
     }
@@ -776,10 +1252,10 @@ export default function App() {
       setLocalStorageItem(STORAGE_KEYS.goals, JSON.stringify(goals)),
       setLocalStorageItem(STORAGE_KEYS.sprints, JSON.stringify(sprints)),
       setLocalStorageItem(STORAGE_KEYS.labels, JSON.stringify(labels)),
-      setLocalStorageItem(STORAGE_KEYS.workflowColumns, JSON.stringify(workflowColumns)),
+      setLocalStorageItem(STORAGE_KEYS.workflowColumns, JSON.stringify(activeWorkflowForLegacy)),
     ].every(Boolean);
     if (!saved) setStorageAvailable(false);
-  }, [goals, projects, sprints, labels, workflowColumns, hasLoadedStorage]);
+  }, [goals, projects, sprints, labels, activeProjectId, hasLoadedStorage]);
 
   const requestPersistentStorage = async () => {
     if (!navigator.storage?.persist) {
@@ -817,30 +1293,102 @@ export default function App() {
     }
   }, [sprints]);
 
+  useEffect(() => {
+    if (activeSprintId && !sprints.some(sprint => sprint.id === activeSprintId && sprint.projectId === activeProjectId)) {
+      setActiveSprintId(null);
+    }
+  }, [activeProjectId, activeSprintId, sprints]);
+
   const activeProject = projects.find(p => p.id === activeProjectId);
+  const workflowColumns = activeProject?.workflowColumns ?? DEFAULT_WORKFLOW_COLUMNS;
+
+  const openCreateProjectModal = () => {
+    const defaultWorkflow = DEFAULT_WORKFLOW_COLUMNS.map(column => ({ ...column }));
+    setEditingProjectId(null);
+    setProjectName('');
+    setProjectWorkflowColumns(defaultWorkflow);
+    setProjectWorkflowBaseColumns(defaultWorkflow);
+    setProjectWorkflowError(null);
+    setPendingWorkflowColumns(null);
+    setWorkflowGoalMigrations({});
+    setIsProjectModalOpen(true);
+  };
+
+  const openEditProjectModal = (project: Project) => {
+    const projectWorkflow = project.workflowColumns.map(column => ({ ...column }));
+    setEditingProjectId(project.id);
+    setProjectName(project.name);
+    setProjectWorkflowColumns(projectWorkflow);
+    setProjectWorkflowBaseColumns(projectWorkflow);
+    setProjectWorkflowError(null);
+    setPendingWorkflowColumns(null);
+    setWorkflowGoalMigrations({});
+    setIsProjectModalOpen(true);
+  };
+
+  const closeProjectModal = () => {
+    setIsProjectModalOpen(false);
+    setPendingWorkflowColumns(null);
+    setWorkflowGoalMigrations({});
+    setProjectWorkflowError(null);
+  };
+
+  const commitProject = (columns: WorkflowColumn[], migrations: Record<string, GoalStatus> = {}) => {
+    const normalizedColumns = columns.map(column => ({ ...column, title: column.title.trim() }));
+    if (editingProjectId) {
+      setProjects(currentProjects => currentProjects.map(project => project.id === editingProjectId
+        ? { ...project, name: projectName.trim(), workflowColumns: normalizedColumns }
+        : project
+      ));
+      setGoals(currentGoals => currentGoals.map(goal =>
+        goal.projectId === editingProjectId && migrations[goal.status] ? { ...goal, status: migrations[goal.status] } : goal
+      ));
+      if (editingProjectId === activeProjectId && !normalizedColumns.some(column => column.id === newGoalStatus)) {
+        setNewGoalStatus(migrations[newGoalStatus] ?? normalizedColumns[0].id);
+      }
+    } else {
+      const newProject: Project = {
+        id: Math.random().toString(36).substring(2, 9),
+        name: projectName.trim(),
+        createdAt: Date.now(),
+        workflowColumns: normalizedColumns,
+      };
+      setProjects(currentProjects => [...currentProjects, newProject]);
+      setActiveProjectId(newProject.id);
+      setNewGoalStatus(normalizedColumns[0].id);
+    }
+
+    setProjectName('');
+    setEditingProjectId(null);
+    closeProjectModal();
+  };
 
   const addProject = (e: React.FormEvent) => {
     e.preventDefault();
     if (!projectName.trim()) return;
+    const validationError = getWorkflowValidationError(projectWorkflowColumns);
+    if (validationError) {
+      setProjectWorkflowError(validationError);
+      return;
+    }
 
     if (editingProjectId) {
-      setProjects(projects.map(p => p.id === editingProjectId ? { ...p, name: projectName } : p));
-      setEditingProjectId(null);
-    } else {
-      const newProject: Project = {
-        id: Math.random().toString(36).substring(2, 9),
-        name: projectName,
-        createdAt: Date.now(),
-      };
-      setProjects([...projects, newProject]);
-      setActiveProjectId(newProject.id);
+      const savedProject = projects.find(project => project.id === editingProjectId);
+      const removedColumnsWithGoals = (savedProject?.workflowColumns ?? []).filter(column =>
+        !projectWorkflowColumns.some(candidate => candidate.id === column.id) &&
+        goals.some(goal => goal.projectId === editingProjectId && goal.status === column.id)
+      );
+      if (removedColumnsWithGoals.length > 0) {
+        setPendingWorkflowColumns(projectWorkflowColumns.map(column => ({ ...column, title: column.title.trim() })));
+        setWorkflowGoalMigrations({});
+        return;
+      }
     }
-    
-    setProjectName('');
-    setIsProjectModalOpen(false);
+
+    commitProject(projectWorkflowColumns);
   };
 
-  const deleteProject = (id: string) => {
+  const performDeleteProject = (id: string) => {
     if (projects.length <= 1) return; // Keep at least one
     const newProjects = projects.filter(p => p.id !== id);
     setProjects(newProjects);
@@ -849,6 +1397,15 @@ export default function App() {
     if (activeProjectId === id) {
       setActiveProjectId(newProjects[0].id);
     }
+    setProjectPendingDeletion(null);
+  };
+
+  const deleteProject = (id: string) => {
+    if (sprints.some(sprint => sprint.projectId === id && sprint.status === 'active')) {
+      setProjectPendingDeletion(id);
+      return;
+    }
+    performDeleteProject(id);
   };
 
   const calculateEndDate = (start: string, length: SprintLength): string => {
@@ -880,40 +1437,124 @@ export default function App() {
     }
   }, [sprintStartDate, sprintLength]);
 
+  const openCreateSprintModal = () => {
+    setEditingSprintId(null);
+    setSprintName('');
+    setSprintProjectId(activeProjectId);
+    setSprintLength('2-weeks');
+    setSprintStartDate(new Date().toISOString().split('T')[0]);
+    setSprintFormError(null);
+    setPendingSprintMove(null);
+    setSprintMoveGoalStageId('');
+    setIsSprintModalOpen(true);
+  };
+
+  const openEditSprintModal = (sprint: Sprint) => {
+    setEditingSprintId(sprint.id);
+    setSprintName(sprint.name);
+    setSprintProjectId(sprint.projectId);
+    setSprintLength(sprint.length);
+    setSprintStartDate(sprint.startDate);
+    setSprintEndDate(sprint.endDate);
+    setSprintFormError(null);
+    setPendingSprintMove(null);
+    setSprintMoveGoalStageId('');
+    setIsSprintModalOpen(true);
+  };
+
+  const closeSprintModal = () => {
+    setIsSprintModalOpen(false);
+    setPendingSprintMove(null);
+    setSprintMoveGoalStageId('');
+    setSprintFormError(null);
+  };
+
+  const commitSprint = (sprint: Sprint, goalsToMove: Goal[] = [], destinationStageId = '') => {
+    if (editingSprintId) {
+      setSprints(currentSprints => currentSprints.map(current => current.id === editingSprintId ? sprint : current));
+      if (goalsToMove.length > 0) {
+        const goalIdsToMove = new Set(goalsToMove.map(goal => goal.id));
+        const destinationWorkflow = projects.find(project => project.id === sprint.projectId)?.workflowColumns ?? [];
+        setGoals(currentGoals => currentGoals.map(goal => {
+          if (!goalIdsToMove.has(goal.id)) return goal;
+          const statusIsValid = destinationWorkflow.some(column => column.id === goal.status);
+          return {
+            ...goal,
+            projectId: sprint.projectId,
+            status: statusIsValid ? goal.status : destinationStageId,
+          };
+        }));
+      }
+    } else {
+      setSprints(currentSprints => [...currentSprints, sprint]);
+    }
+    setSprintName('');
+    setEditingSprintId(null);
+    closeSprintModal();
+  };
+
   const addSprint = (e: React.FormEvent) => {
     e.preventDefault();
-    if (!sprintName.trim() || !activeProjectId) return;
-
-    if (editingSprintId) {
-      setSprints(sprints.map(s => s.id === editingSprintId ? {
-        ...s,
-        name: sprintName,
-        startDate: sprintStartDate,
-        endDate: sprintEndDate,
-        length: sprintLength,
-      } : s));
-      setEditingSprintId(null);
-    } else {
-      const newSprint: Sprint = {
-        id: Math.random().toString(36).substring(2, 9),
-        projectId: activeProjectId,
-        name: sprintName,
-        startDate: sprintStartDate,
-        endDate: sprintEndDate,
-        length: sprintLength,
-        status: 'planned',
-        goalIds: [],
-        createdAt: Date.now()
-      };
-      setSprints([...sprints, newSprint]);
+    if (!sprintName.trim()) {
+      setSprintFormError('Sprint name is required.');
+      return;
+    }
+    if (!sprintProjectId || !projects.some(project => project.id === sprintProjectId)) {
+      setSprintFormError('Choose a project for this sprint.');
+      return;
     }
 
-    setSprintName('');
-    setIsSprintModalOpen(false);
+    const existingSprint = editingSprintId ? sprints.find(sprint => sprint.id === editingSprintId) : null;
+    const nextSprint: Sprint = existingSprint ? {
+      ...existingSprint,
+      projectId: sprintProjectId,
+      name: sprintName.trim(),
+      startDate: sprintStartDate,
+      endDate: sprintEndDate,
+      length: sprintLength,
+    } : {
+      id: Math.random().toString(36).substring(2, 9),
+      projectId: sprintProjectId,
+      name: sprintName.trim(),
+      startDate: sprintStartDate,
+      endDate: sprintEndDate,
+      length: sprintLength,
+      status: 'planned',
+      goalIds: [],
+      createdAt: Date.now(),
+    };
+
+    if (existingSprint && existingSprint.projectId !== sprintProjectId) {
+      const goalsToMove = goals.filter(goal => goal.sprintId === existingSprint.id && goal.projectId !== sprintProjectId);
+      if (goalsToMove.length > 0) {
+        const destinationWorkflow = projects.find(project => project.id === sprintProjectId)?.workflowColumns ?? [];
+        const goalsNeedingStage = goalsToMove.filter(goal => !destinationWorkflow.some(column => column.id === goal.status));
+        setPendingSprintMove({ sprint: nextSprint, goalsToMove, goalsNeedingStage });
+        setSprintMoveGoalStageId('');
+        return;
+      }
+    }
+
+    commitSprint(nextSprint);
   };
 
   const assignGoalToSprint = (goalId: string, sprintId: string | null) => {
-    setGoals(goals.map(g => g.id === goalId ? { ...g, sprintId: sprintId || undefined } : g));
+    const goal = goals.find(item => item.id === goalId);
+    if (!goal?.projectId) return;
+    if (sprintId) {
+      const destinationSprint = sprints.find(sprint =>
+        sprint.id === sprintId && sprint.projectId === goal.projectId && (sprint.status === 'active' || sprint.status === 'planned')
+      );
+      if (!destinationSprint) return;
+    }
+
+    setGoals(currentGoals => currentGoals.map(item => item.id === goalId ? { ...item, sprintId: sprintId || undefined } : item));
+    setSprints(currentSprints => currentSprints.map(sprint => ({
+      ...sprint,
+      goalIds: sprint.id === sprintId
+        ? Array.from(new Set([...(sprint.goalIds ?? []), goalId]))
+        : (sprint.goalIds ?? []).filter(id => id !== goalId),
+    })));
   };
 
   const sensors = useSensors(
@@ -978,61 +1619,6 @@ export default function App() {
 
   const handleDragEnd = (event: DragEndEvent) => {
     setActiveGoal(null);
-  };
-
-  const createWorkflowColumn = (event: React.FormEvent) => {
-    event.preventDefault();
-    const title = newColumnName.trim();
-    if (!title || workflowColumns.some(column => column.title.toLocaleLowerCase() === title.toLocaleLowerCase())) return;
-
-    const newColumn: WorkflowColumn = {
-      id: `column-${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 6)}`,
-      title,
-    };
-    setWorkflowColumns(columns => [...columns, newColumn]);
-    setNewColumnName('');
-  };
-
-  const renameWorkflowColumn = (id: string, title: string) => {
-    setWorkflowColumns(columns => columns.map(column => column.id === id ? { ...column, title } : column));
-  };
-
-  const normalizeWorkflowColumnName = (id: string) => {
-    setWorkflowColumns(columns => columns.map(column =>
-      column.id === id ? { ...column, title: column.title.trim() || 'Untitled' } : column
-    ));
-  };
-
-  const moveWorkflowColumn = (id: string, direction: -1 | 1) => {
-    setWorkflowColumns(columns => {
-      const index = columns.findIndex(column => column.id === id);
-      const destination = index + direction;
-      if (index < 0 || destination < 0 || destination >= columns.length) return columns;
-      return arrayMove(columns, index, destination);
-    });
-  };
-
-  const requestWorkflowColumnDeletion = (id: string) => {
-    if (workflowColumns.length <= 1) return;
-    const destination = workflowColumns.find(column => column.id !== id)?.id ?? '';
-    if (!goals.some(goal => goal.status === id)) {
-      setWorkflowColumns(columns => columns.filter(column => column.id !== id));
-      if (newGoalStatus === id) setNewGoalStatus(destination);
-      return;
-    }
-    setColumnPendingDeletion(id);
-    setColumnMoveDestination(destination);
-  };
-
-  const confirmWorkflowColumnDeletion = () => {
-    if (!columnPendingDeletion || !columnMoveDestination) return;
-    setGoals(currentGoals => currentGoals.map(goal =>
-      goal.status === columnPendingDeletion ? { ...goal, status: columnMoveDestination } : goal
-    ));
-    setWorkflowColumns(columns => columns.filter(column => column.id !== columnPendingDeletion));
-    if (newGoalStatus === columnPendingDeletion) setNewGoalStatus(columnMoveDestination);
-    setColumnPendingDeletion(null);
-    setColumnMoveDestination('');
   };
 
   const createLabel = () => {
@@ -1221,6 +1807,13 @@ export default function App() {
     setNewLabelColor('bg-indigo-500');
   };
 
+  const openNewGoalModal = (status: GoalStatus = workflowColumns[0]?.id ?? DEFAULT_WORKFLOW_COLUMNS[0].id) => {
+    setEditingGoalId(null);
+    resetGoalForm();
+    setNewGoalStatus(status);
+    setIsModalOpen(true);
+  };
+
   const updateGoalLifecycle = (id: string, status: GoalLifecycleStatus) => {
     setGoals(goals.map(g => {
       if (g.id === id) {
@@ -1349,16 +1942,31 @@ export default function App() {
       const importedWorkflowColumns: WorkflowColumn[] = Array.isArray(parsed.workflowColumns) && parsed.workflowColumns.length > 0
         ? parsed.workflowColumns
         : DEFAULT_WORKFLOW_COLUMNS;
+      const importedProjects: Project[] = Array.isArray(parsed.projects) ? parsed.projects.map((project: Partial<Project>) => ({
+        ...project,
+        workflowColumns: Array.isArray(project.workflowColumns) && project.workflowColumns.length > 0
+          ? project.workflowColumns
+          : importedWorkflowColumns.map(column => ({ ...column })),
+      })) as Project[] : [];
+      const importedGoals: Goal[] = Array.isArray(parsed.goals) ? parsed.goals : [];
+      const importedSprints: Sprint[] = Array.isArray(parsed.sprints) ? parsed.sprints.map((sprint: Partial<Sprint>) => {
+        const inferredProjectId = importedGoals.find(goal => goal.sprintId === sprint.id)?.projectId;
+        const projectId = sprint.projectId && importedProjects.some(project => project.id === sprint.projectId)
+          ? sprint.projectId
+          : inferredProjectId && importedProjects.some(project => project.id === inferredProjectId)
+            ? inferredProjectId
+            : importedProjects[0]?.id ?? '';
+        return { ...sprint, projectId } as Sprint;
+      }) : [];
       
       if (importMode === 'replace') {
-        setProjects(parsed.projects);
-        setGoals(parsed.goals);
-        setSprints(parsed.sprints);
+        setProjects(importedProjects);
+        setGoals(importedGoals);
+        setSprints(importedSprints);
         if (parsed.labels) setLabels(parsed.labels);
-        setWorkflowColumns(importedWorkflowColumns);
-        setNewGoalStatus(importedWorkflowColumns[0].id);
-        if (parsed.projects.length > 0) {
-          setActiveProjectId(parsed.projects[0].id);
+        if (importedProjects.length > 0) {
+          setNewGoalStatus(importedProjects[0].workflowColumns[0].id);
+          setActiveProjectId(importedProjects[0].id);
         }
         setActiveSprintId(null);
         setImportResult('Data replaced successfully.');
@@ -1368,20 +1976,15 @@ export default function App() {
         const existingGoalIds = new Set(goals.map(g => g.id));
         const existingSprintIds = new Set(sprints.map(s => s.id));
         const existingLabelIds = new Set(labels.map(l => l.id));
-        const existingWorkflowColumnIds = new Set(workflowColumns.map(column => column.id));
-
-        const newProjects = parsed.projects.filter((p: Project) => !existingProjectIds.has(p.id));
-        const newGoals = parsed.goals.filter((g: Goal) => !existingGoalIds.has(g.id));
-        const newSprints = parsed.sprints.filter((s: Sprint) => !existingSprintIds.has(s.id));
+        const newProjects = importedProjects.filter((p: Project) => !existingProjectIds.has(p.id));
+        const newGoals = importedGoals.filter((g: Goal) => !existingGoalIds.has(g.id));
+        const newSprints = importedSprints.filter((s: Sprint) => !existingSprintIds.has(s.id));
         const newLabels = (parsed.labels || []).filter((l: Label) => !existingLabelIds.has(l.id));
-        const newWorkflowColumns = importedWorkflowColumns.filter(column => !existingWorkflowColumnIds.has(column.id));
-
         setProjects([...projects, ...newProjects]);
         setGoals([...goals, ...newGoals]);
         setSprints([...sprints, ...newSprints]);
         setLabels([...labels, ...newLabels]);
-        setWorkflowColumns([...workflowColumns, ...newWorkflowColumns]);
-        
+
         setImportResult(`Import complete: ${newProjects.length} projects, ${newGoals.length} goals, ${newSprints.length} sprints, ${newLabels.length} labels added.`);
       }
       
@@ -1409,7 +2012,8 @@ export default function App() {
       matchesSearch;
   });
 
-  const activeSprint = sprints.find(s => s.id === activeSprintId);
+  const activeSprint = sprints.find(s => s.id === activeSprintId && s.projectId === activeProjectId);
+  const activeSprintProject = activeSprint ? projects.find(project => project.id === activeSprint.projectId) : null;
   const sprintGoals = goals.filter(g => g.sprintId === activeSprintId);
   const completedGoalsCount = sprintGoals.filter(g => g.lifecycleStatus === 'completed').length;
   const totalGoalsCount = sprintGoals.length;
@@ -1431,6 +2035,15 @@ export default function App() {
     )
   );
 
+  const projectBeingEdited = editingProjectId ? projects.find(project => project.id === editingProjectId) : null;
+  const pendingRemovedWorkflowColumns = pendingWorkflowColumns
+    ? (projectBeingEdited?.workflowColumns ?? []).filter(column =>
+        !pendingWorkflowColumns.some(candidate => candidate.id === column.id) &&
+        goals.some(goal => goal.projectId === editingProjectId && goal.status === column.id)
+      )
+    : [];
+  const workflowMigrationsComplete = pendingRemovedWorkflowColumns.every(column => Boolean(workflowGoalMigrations[column.id]));
+
   return (
     <div className="min-h-screen flex bg-bg">
       {/* Sidebar */}
@@ -1442,42 +2055,57 @@ export default function App() {
           <h1 className="text-lg font-bold tracking-tight text-text">KanbanGXP</h1>
         </div>
 
-        <div className="flex-1 overflow-y-auto p-4 space-y-6">
-          <div>
-            <div className="flex items-center justify-between mb-3 px-2">
-              <h2 className="text-[10px] font-bold text-slate-400 uppercase tracking-widest">Focus</h2>
-            </div>
-            <div className="space-y-1">
-              <button
-                onClick={() => setIsFocusMode(!isFocusMode)}
-                className={cn(
-                  "w-full flex items-center gap-3 px-3 py-2 rounded-xl text-sm font-semibold transition-all text-left",
-                  isFocusMode 
-                    ? "bg-amber-50 text-amber-700 shadow-sm ring-1 ring-amber-200" 
-                    : "text-slate-500 hover:bg-slate-50 hover:text-slate-700"
-                )}
-              >
-                <Zap size={16} className={isFocusMode ? "text-amber-500 fill-amber-500" : "text-slate-400"} />
-                <span className="truncate flex-1">Focus Mode</span>
-                {goals.filter(g => g.plannedForToday && g.lifecycleStatus !== 'completed').length > 0 && (
-                  <span className="bg-amber-500 text-white text-[10px] px-1.5 py-0.5 rounded-full font-bold">
-                    {goals.filter(g => g.plannedForToday && g.lifecycleStatus !== 'completed').length}
-                  </span>
-                )}
-              </button>
-            </div>
+        <div className="border-b border-border p-4">
+          <div className="mb-2 flex items-center justify-between px-1">
+            <p id="goal-context-label" className="text-[10px] font-bold uppercase tracking-widest text-text-muted">Goal context</p>
+            <span className="text-[9px] font-semibold text-text-muted">{activeBoard}</span>
           </div>
+          <div className="grid grid-cols-2 gap-1 rounded-xl bg-column p-1" role="radiogroup" aria-labelledby="goal-context-label">
+            <button
+              type="button"
+              role="radio"
+              aria-checked={activeBoard === 'Work'}
+              aria-label="Show work goals"
+              title="Show goals in the Work context"
+              onClick={() => setActiveBoard('Work')}
+              className={cn(
+                "flex min-h-9 items-center justify-center gap-1.5 rounded-lg px-2 py-2 text-xs font-bold transition-all focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent focus-visible:ring-offset-1",
+                activeBoard === 'Work'
+                  ? "bg-card text-accent shadow-sm"
+                  : "text-text-muted hover:bg-card/70 hover:text-text"
+              )}
+            >
+              <Briefcase size={14} aria-hidden="true" />
+              Work goals
+            </button>
+            <button
+              type="button"
+              role="radio"
+              aria-checked={activeBoard === 'Life'}
+              aria-label="Show life goals"
+              title="Show goals in the Life context"
+              onClick={() => setActiveBoard('Life')}
+              className={cn(
+                "flex min-h-9 items-center justify-center gap-1.5 rounded-lg px-2 py-2 text-xs font-bold transition-all focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent focus-visible:ring-offset-1",
+                activeBoard === 'Life'
+                  ? "bg-card text-accent shadow-sm"
+                  : "text-text-muted hover:bg-card/70 hover:text-text"
+              )}
+            >
+              <Heart size={14} aria-hidden="true" />
+              Life goals
+            </button>
+          </div>
+        </div>
 
+        <div className="flex-1 overflow-y-auto p-4 space-y-6">
           <div>
             <div className="flex items-center justify-between mb-3 px-2">
               <h2 className="text-[10px] font-bold text-slate-400 uppercase tracking-widest">Projects</h2>
               <button 
-                onClick={() => {
-                  setEditingProjectId(null);
-                  setProjectName('');
-                  setIsProjectModalOpen(true);
-                }}
+                onClick={openCreateProjectModal}
                 className="p-1 hover:bg-slate-100 rounded text-slate-400 hover:text-indigo-600 transition-colors"
+                aria-label="Create project"
               >
                 <Plus size={14} />
               </button>
@@ -1485,27 +2113,21 @@ export default function App() {
             <div className="space-y-1">
               {projects.map(project => (
                 <div key={project.id} className="group relative">
-                  <button
+                  <SidebarItem
                     onClick={() => setActiveProjectId(project.id)}
-                    className={cn(
-                      "w-full flex items-center gap-3 px-3 py-2 rounded-xl text-sm font-semibold transition-all text-left",
-                      activeProjectId === project.id 
-                        ? "bg-indigo-50 text-indigo-700" 
-                        : "text-slate-500 hover:bg-slate-50 hover:text-slate-700"
-                    )}
-                  >
-                    <Folder size={16} className={activeProjectId === project.id ? "text-indigo-600" : "text-slate-400"} />
-                    <span className="truncate flex-1">{project.name}</span>
-                  </button>
+                    active={activeProjectId === project.id}
+                    icon={<Folder size={16} className={activeProjectId === project.id ? "text-indigo-600" : "text-slate-400"} />}
+                    label={project.name}
+                    className="pr-14"
+                  />
                   <div className="absolute right-2 top-1/2 -translate-y-1/2 opacity-0 group-hover:opacity-100 flex gap-1">
                     <button 
                       onClick={(e) => {
                         e.stopPropagation();
-                        setEditingProjectId(project.id);
-                        setProjectName(project.name);
-                        setIsProjectModalOpen(true);
+                        openEditProjectModal(project);
                       }}
                       className="p-1 text-slate-400 hover:text-indigo-600 transition-colors"
+                      aria-label={`Edit ${project.name}`}
                     >
                       <Edit2 size={12} />
                     </button>
@@ -1526,69 +2148,91 @@ export default function App() {
             </div>
           </div>
 
+          {/* Board-level views */}
+          <div>
+            <div className="mb-3 flex items-center justify-between px-2">
+              <h2 className="text-[10px] font-bold uppercase tracking-widest text-slate-400">Views</h2>
+            </div>
+            <div className="space-y-1">
+              <SidebarItem
+                onClick={() => {
+                  setActiveSprintId(null);
+                  setIsFocusMode(false);
+                }}
+                active={activeSprintId === null && !isFocusMode && !showArchived}
+                icon={<LayoutGrid size={16} className={activeSprintId === null && !isFocusMode && !showArchived ? "text-indigo-600" : "text-slate-400"} />}
+                label="All Goals"
+              />
+              <div className="relative">
+                <SidebarItem
+                  onClick={() => setIsFocusMode(!isFocusMode)}
+                  active={isFocusMode}
+                  activeTone="amber"
+                  icon={<Zap size={16} className={isFocusMode ? "fill-amber-500 text-amber-500" : "text-slate-400"} />}
+                  label="Focus Mode"
+                  className="pr-12"
+                />
+                {goals.filter(g => g.plannedForToday && g.lifecycleStatus !== 'completed').length > 0 && (
+                  <span className="pointer-events-none absolute right-3 top-1/2 -translate-y-1/2 rounded-full bg-amber-500 px-1.5 py-0.5 text-[10px] font-bold text-white">
+                    {goals.filter(g => g.plannedForToday && g.lifecycleStatus !== 'completed').length}
+                  </span>
+                )}
+              </div>
+              {showArchived ? (
+                <SidebarItem
+                  onClick={() => setShowArchived(false)}
+                  active
+                  activeTone="amber"
+                  icon={<ArrowLeft size={16} className="text-amber-600" />}
+                  label="Exit archive"
+                  ariaLabel="Exit archive and view active goals and sprints"
+                  title="Return to active goals and sprints"
+                />
+              ) : (
+                <SidebarItem
+                  onClick={() => setShowArchived(true)}
+                  icon={<Archive size={16} className="text-slate-400" />}
+                  label="Archived goals"
+                  ariaLabel="View archived goals and sprints"
+                  title="Show archived goals and sprints"
+                />
+              )}
+            </div>
+          </div>
+
           {/* Sprints Section */}
-          <div className="mt-6">
+          <div>
             <div className="flex items-center justify-between mb-3 px-2">
               <h2 className="text-[10px] font-bold text-slate-400 uppercase tracking-widest">Sprints</h2>
               <button 
-                onClick={() => {
-                  setEditingSprintId(null);
-                  setSprintName('');
-                  setSprintLength('2-weeks');
-                  setSprintStartDate(new Date().toISOString().split('T')[0]);
-                  setIsSprintModalOpen(true);
-                }}
+                onClick={openCreateSprintModal}
                 className="p-1 hover:bg-slate-100 rounded text-slate-400 hover:text-indigo-600 transition-colors"
+                aria-label={`Create sprint for ${activeProject?.name ?? 'current project'}`}
               >
                 <Plus size={14} />
               </button>
             </div>
             <div className="space-y-1">
-              <button
-                onClick={() => setActiveSprintId(null)}
-                className={cn(
-                  "w-full flex items-center gap-3 px-3 py-2 rounded-xl text-sm font-semibold transition-all text-left",
-                  activeSprintId === null 
-                    ? "bg-indigo-50 text-indigo-700" 
-                    : "text-slate-500 hover:bg-slate-50 hover:text-slate-700"
-                )}
-              >
-                <LayoutGrid size={16} className={activeSprintId === null ? "text-indigo-600" : "text-slate-400"} />
-                <span className="truncate flex-1">All Goals</span>
-              </button>
               {sprints
                 .filter(s => s.projectId === activeProjectId && (showArchived ? s.status === 'archived' : s.status !== 'archived'))
                 .map(sprint => (
                 <div key={sprint.id} className="group relative">
-                  <button
+                  <SidebarItem
                     onClick={() => setActiveSprintId(sprint.id)}
-                    className={cn(
-                      "w-full flex items-center gap-3 px-3 py-2 rounded-xl text-sm font-semibold transition-all text-left pr-12",
-                      activeSprintId === sprint.id 
-                        ? "bg-indigo-50 text-indigo-700" 
-                        : "text-slate-500 hover:bg-slate-50 hover:text-slate-700"
-                    )}
-                  >
-                    <Zap size={16} className={activeSprintId === sprint.id ? "text-indigo-600" : "text-slate-400"} />
-                    <div className="flex flex-col min-w-0">
-                      <span className="truncate">{sprint.name}</span>
-                      <span className="text-[9px] text-slate-400 font-normal">
-                        {new Date(sprint.startDate).toLocaleDateString(undefined, { month: 'short', day: 'numeric' })} - {new Date(sprint.endDate).toLocaleDateString(undefined, { month: 'short', day: 'numeric' })}
-                      </span>
-                    </div>
-                  </button>
+                    active={activeSprintId === sprint.id}
+                    icon={<Zap size={16} className={activeSprintId === sprint.id ? "text-indigo-600" : "text-slate-400"} />}
+                    label={sprint.name}
+                    description={`${new Date(sprint.startDate).toLocaleDateString(undefined, { month: 'short', day: 'numeric' })} - ${new Date(sprint.endDate).toLocaleDateString(undefined, { month: 'short', day: 'numeric' })}`}
+                    className="pr-20"
+                  />
                   <div className="absolute right-2 top-1/2 -translate-y-1/2 opacity-0 group-hover:opacity-100 flex gap-1">
                     <button 
                       onClick={(e) => {
                         e.stopPropagation();
-                        setEditingSprintId(sprint.id);
-                        setSprintName(sprint.name);
-                        setSprintLength(sprint.length);
-                        setSprintStartDate(sprint.startDate);
-                        setSprintEndDate(sprint.endDate);
-                        setIsSprintModalOpen(true);
+                        openEditSprintModal(sprint);
                       }}
                       className="p-1 text-slate-400 hover:text-indigo-600 transition-colors"
+                      aria-label={`Edit ${sprint.name}`}
                     >
                       <Edit2 size={12} />
                     </button>
@@ -1630,55 +2274,28 @@ export default function App() {
             </div>
           </div>
 
-          <div className="mt-6">
+          <div>
             <div className="flex items-center justify-between mb-3 px-2">
               <h2 className="text-[10px] font-bold text-slate-400 uppercase tracking-widest">Labels</h2>
+              <span className="text-[9px] font-semibold uppercase tracking-wider text-slate-400">Filters</span>
             </div>
             <div className="space-y-1">
-              <button
+              <SidebarItem
                 onClick={() => setActiveLabelFilter(null)}
-                className={cn(
-                  "w-full flex items-center gap-3 px-3 py-2 rounded-xl text-sm font-semibold transition-all text-left",
-                  activeLabelFilter === null 
-                    ? "bg-indigo-50 text-indigo-700" 
-                    : "text-slate-500 hover:bg-slate-50 hover:text-slate-700"
-                )}
-              >
-                <Tag size={16} className={activeLabelFilter === null ? "text-indigo-600" : "text-slate-400"} />
-                <span className="truncate flex-1">All Labels</span>
-              </button>
+                active={activeLabelFilter === null}
+                icon={<Tag size={16} className={activeLabelFilter === null ? "text-indigo-600" : "text-slate-400"} />}
+                label="All Labels"
+              />
               {labels.map(label => (
-                <button
+                <SidebarItem
                   key={label.id}
                   onClick={() => setActiveLabelFilter(label.id)}
-                  className={cn(
-                    "w-full flex items-center gap-3 px-3 py-2 rounded-xl text-sm font-semibold transition-all text-left",
-                    activeLabelFilter === label.id 
-                      ? "bg-indigo-50 text-indigo-700" 
-                      : "text-slate-500 hover:bg-slate-50 hover:text-slate-700"
-                  )}
-                >
-                  <div className={cn("w-3 h-3 rounded-full", label.color)} />
-                  <span className="truncate flex-1">{label.name}</span>
-                </button>
+                  active={activeLabelFilter === label.id}
+                  icon={<span className={cn("h-3 w-3 shrink-0 rounded-full ring-1 ring-black/10", label.color)} aria-hidden="true" />}
+                  label={label.name}
+                />
               ))}
             </div>
-          </div>
-
-          {/* Archive Toggle */}
-          <div className="mt-auto pt-6">
-            <button
-              onClick={() => setShowArchived(!showArchived)}
-              className={cn(
-                "w-full flex items-center gap-3 px-3 py-2 rounded-xl text-sm font-semibold transition-all text-left",
-                showArchived 
-                  ? "bg-amber-50 text-amber-700" 
-                  : "text-slate-500 hover:bg-slate-50 hover:text-slate-700"
-              )}
-            >
-              <Archive size={16} className={showArchived ? "text-amber-600" : "text-slate-400"} />
-              <span className="truncate flex-1">{showArchived ? "Back to Active" : "View Archive"}</span>
-            </button>
           </div>
         </div>
 
@@ -1859,6 +2476,14 @@ export default function App() {
           </div>
 
           <div className="flex flex-1 flex-wrap items-center justify-end gap-3">
+            <button
+              type="button"
+              onClick={() => openNewGoalModal()}
+              className="order-1 inline-flex min-h-10 items-center justify-center gap-2 rounded-xl bg-accent px-4 py-2 text-sm font-bold text-white shadow-md shadow-indigo-200/60 transition-all hover:-translate-y-0.5 hover:opacity-90 hover:shadow-lg focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent focus-visible:ring-offset-2"
+            >
+              <Plus size={17} aria-hidden="true" />
+              New goal
+            </button>
             <div className="relative order-2 w-full sm:order-1 sm:w-auto">
               <Search
                 size={16}
@@ -1885,32 +2510,6 @@ export default function App() {
               )}
             </div>
 
-            <div className="order-1 flex bg-slate-100 p-1 rounded-xl">
-              <button
-                onClick={() => setActiveBoard('Work')}
-                className={cn(
-                  "flex items-center gap-2 px-4 py-2 rounded-lg text-sm font-semibold transition-all",
-                  activeBoard === 'Work' 
-                    ? "bg-white text-indigo-600 shadow-sm" 
-                    : "text-slate-500 hover:text-slate-700"
-                )}
-              >
-                <Briefcase size={16} />
-                Work
-              </button>
-              <button
-                onClick={() => setActiveBoard('Life')}
-                className={cn(
-                  "flex items-center gap-2 px-4 py-2 rounded-lg text-sm font-semibold transition-all",
-                  activeBoard === 'Life' 
-                    ? "bg-white text-rose-600 shadow-sm" 
-                    : "text-slate-500 hover:text-slate-700"
-                )}
-              >
-                <Heart size={16} />
-                Life
-              </button>
-            </div>
           </div>
         </header>
 
@@ -1933,6 +2532,10 @@ export default function App() {
                     </span>
                   </div>
                   <div className="flex items-center gap-4 text-xs text-slate-500 font-medium">
+                    <div className="flex items-center gap-1.5">
+                      <Folder size={14} className="text-slate-400" aria-hidden="true" />
+                      <span>{activeSprintProject?.name ?? 'Unknown project'}</span>
+                    </div>
                     <div className="flex items-center gap-1.5">
                       <Calendar size={14} className="text-slate-400" />
                       <span>{new Date(activeSprint.startDate).toLocaleDateString()} - {new Date(activeSprint.endDate).toLocaleDateString()}</span>
@@ -1970,20 +2573,12 @@ export default function App() {
         )}
 
         {/* Kanban Board */}
-        <main className="flex-1 p-8 overflow-x-auto bg-bg">
+        <main className="flex-1 overflow-x-auto bg-bg px-4 py-6 sm:p-8">
           <div className="h-full">
-            <div className="mb-5 flex items-center justify-between gap-4">
+            <div className="mb-3">
               <p className="text-xs font-medium text-text-muted">
                 {workflowColumns.length} workflow {workflowColumns.length === 1 ? 'stage' : 'stages'}
               </p>
-              <button
-                type="button"
-                onClick={() => setIsWorkflowModalOpen(true)}
-                className="flex items-center gap-2 rounded-xl border border-border bg-card px-3 py-2 text-xs font-bold text-text shadow-sm transition-colors hover:bg-column"
-              >
-                <Settings size={14} />
-                Customize workflow
-              </button>
             </div>
             <DndContext
               sensors={sensors}
@@ -1992,7 +2587,13 @@ export default function App() {
               onDragOver={handleDragOver}
               onDragEnd={handleDragEnd}
             >
-              <div className="flex gap-8 h-full min-w-max">
+              <div
+                className="kanban-board-grid"
+                style={{
+                  gridTemplateColumns: `repeat(${workflowColumns.length}, minmax(18rem, 1fr))`,
+                  minWidth: `calc(${workflowColumns.length} * 18rem + ${Math.max(0, workflowColumns.length - 1)} * 1.25rem)`,
+                }}
+              >
                 {workflowColumns.map((col) => (
                   <KanbanColumn
                     key={col.id}
@@ -2000,18 +2601,15 @@ export default function App() {
                     title={col.title}
                     goals={filteredGoals.filter(g => g.status === col.id)}
                     labels={labels}
+                    sprints={sprints}
                     onDelete={deleteGoal}
-                    onAdd={(status) => {
-                      setEditingGoalId(null);
-                      resetGoalForm();
-                      setNewGoalStatus(status);
-                      setIsModalOpen(true);
-                    }}
+                    onAdd={openNewGoalModal}
                     onEdit={openEditModal}
                     onToggleChecklist={toggleChecklistItem}
                     onUpdateNumeric={updateNumericProgress}
                     onUpdateLifecycle={updateGoalLifecycle}
                     onTogglePlannedForToday={togglePlannedForToday}
+                    onAssignSprint={assignGoalToSprint}
                   />
                 ))}
               </div>
@@ -2042,7 +2640,7 @@ export default function App() {
               initial={{ opacity: 0 }}
               animate={{ opacity: 1 }}
               exit={{ opacity: 0 }}
-              onClick={() => setIsSprintModalOpen(false)}
+              onClick={closeSprintModal}
               className="absolute inset-0 bg-slate-900/40 backdrop-blur-sm"
             />
             <motion.div 
@@ -2054,18 +2652,43 @@ export default function App() {
               <div className="p-8">
                 <div className="flex items-center justify-between mb-8">
                   <div>
-                    <h2 className="text-2xl font-bold text-slate-900">New Sprint</h2>
-                    <p className="text-sm text-slate-500 mt-1">Define your focused execution window.</p>
+                    <h2 className="text-2xl font-bold text-slate-900">{editingSprintId ? 'Edit Sprint' : 'New Sprint'}</h2>
+                    <p className="text-sm text-slate-500 mt-1">Define the project and execution window.</p>
                   </div>
                   <button 
-                    onClick={() => setIsSprintModalOpen(false)}
+                    onClick={closeSprintModal}
                     className="p-2 hover:bg-slate-100 rounded-full transition-colors text-slate-400"
+                    aria-label="Close sprint form"
                   >
                     <X size={20} />
                   </button>
                 </div>
 
                 <form onSubmit={addSprint} className="space-y-6">
+                  <div>
+                    <label htmlFor="sprint-project" className="block text-xs font-bold text-slate-500 uppercase tracking-widest mb-2">
+                      Project
+                    </label>
+                    <select
+                      id="sprint-project"
+                      required
+                      value={sprintProjectId}
+                      onChange={(event) => {
+                        setSprintProjectId(event.target.value);
+                        setSprintFormError(null);
+                      }}
+                      className="w-full rounded-2xl border border-slate-200 bg-slate-50 px-4 py-3 text-sm font-semibold text-slate-900 outline-none transition-all focus:border-indigo-500 focus:ring-2 focus:ring-indigo-500/20"
+                    >
+                      <option value="" disabled>Choose a project</option>
+                      {projects.map(project => (
+                        <option key={project.id} value={project.id}>{project.name}</option>
+                      ))}
+                    </select>
+                    {!editingSprintId && sprintProjectId === activeProjectId && (
+                      <p className="mt-1.5 text-xs text-slate-400">Preselected from the current project.</p>
+                    )}
+                  </div>
+
                   <div>
                     <label className="block text-xs font-bold text-slate-500 uppercase tracking-widest mb-2">
                       Sprint Name
@@ -2127,10 +2750,12 @@ export default function App() {
                     />
                   </div>
 
+                  {sprintFormError && <p role="alert" className="text-sm font-semibold text-rose-600">{sprintFormError}</p>}
+
                   <div className="flex gap-3 pt-4">
                     <button
                       type="button"
-                      onClick={() => setIsSprintModalOpen(false)}
+                      onClick={closeSprintModal}
                       className="flex-1 px-6 py-3 rounded-2xl text-sm font-bold text-slate-600 hover:bg-slate-50 transition-all"
                     >
                       Cancel
@@ -2139,10 +2764,78 @@ export default function App() {
                       type="submit"
                       className="flex-2 px-8 py-3 bg-indigo-600 text-white rounded-2xl text-sm font-bold hover:bg-indigo-700 shadow-lg shadow-indigo-200 transition-all"
                     >
-                      Create Sprint
+                      {editingSprintId ? 'Save Sprint' : 'Create Sprint'}
                     </button>
                   </div>
                 </form>
+              </div>
+            </motion.div>
+          </div>
+        )}
+      </AnimatePresence>
+
+      {/* Sprint project move confirmation */}
+      <AnimatePresence>
+        {pendingSprintMove && (
+          <div className="fixed inset-0 z-[70] flex items-center justify-center p-4">
+            <motion.div
+              initial={{ opacity: 0 }}
+              animate={{ opacity: 1 }}
+              exit={{ opacity: 0 }}
+              className="absolute inset-0 bg-slate-900/50 backdrop-blur-sm"
+            />
+            <motion.div
+              initial={{ opacity: 0, scale: 0.95, y: 16 }}
+              animate={{ opacity: 1, scale: 1, y: 0 }}
+              exit={{ opacity: 0, scale: 0.95, y: 16 }}
+              role="alertdialog"
+              aria-modal="true"
+              aria-labelledby="sprint-move-title"
+              className="relative w-full max-w-md rounded-3xl bg-white p-6 text-slate-900 shadow-2xl sm:p-8"
+            >
+              <h2 id="sprint-move-title" className="text-xl font-bold">Move sprint and its goals?</h2>
+              <p className="mt-2 text-sm leading-relaxed text-slate-500">
+                “{pendingSprintMove.sprint.name}” has {pendingSprintMove.goalsToMove.length} {pendingSprintMove.goalsToMove.length === 1 ? 'goal' : 'goals'} that must move to {projects.find(project => project.id === pendingSprintMove.sprint.projectId)?.name} with the sprint.
+              </p>
+
+              {pendingSprintMove.goalsNeedingStage.length > 0 && (
+                <div className="mt-5">
+                  <label htmlFor="sprint-move-stage" className="block text-sm font-bold text-slate-800">
+                    Destination stage for {pendingSprintMove.goalsNeedingStage.length} unmatched {pendingSprintMove.goalsNeedingStage.length === 1 ? 'goal' : 'goals'}
+                  </label>
+                  <select
+                    id="sprint-move-stage"
+                    value={sprintMoveGoalStageId}
+                    onChange={(event) => setSprintMoveGoalStageId(event.target.value)}
+                    className="mt-2 w-full rounded-xl border border-slate-200 bg-slate-50 px-4 py-3 text-sm font-semibold text-slate-900 outline-none focus:border-indigo-500 focus:ring-2 focus:ring-indigo-500/10"
+                  >
+                    <option value="">Choose a destination stage</option>
+                    {projects.find(project => project.id === pendingSprintMove.sprint.projectId)?.workflowColumns.map(column => (
+                      <option key={column.id} value={column.id}>{column.title}</option>
+                    ))}
+                  </select>
+                </div>
+              )}
+
+              <div className="mt-6 flex flex-col-reverse gap-3 sm:flex-row">
+                <button
+                  type="button"
+                  onClick={() => {
+                    setPendingSprintMove(null);
+                    setSprintMoveGoalStageId('');
+                  }}
+                  className="flex-1 rounded-xl px-4 py-3 font-bold text-slate-600 hover:bg-slate-100"
+                >
+                  Back
+                </button>
+                <button
+                  type="button"
+                  disabled={pendingSprintMove.goalsNeedingStage.length > 0 && !sprintMoveGoalStageId}
+                  onClick={() => commitSprint(pendingSprintMove.sprint, pendingSprintMove.goalsToMove, sprintMoveGoalStageId)}
+                  className="flex-1 rounded-xl bg-indigo-600 px-4 py-3 font-bold text-white hover:bg-indigo-700 disabled:cursor-not-allowed disabled:opacity-40"
+                >
+                  Move sprint and goals
+                </button>
               </div>
             </motion.div>
           </div>
@@ -2157,19 +2850,22 @@ export default function App() {
               initial={{ opacity: 0 }}
               animate={{ opacity: 1 }}
               exit={{ opacity: 0 }}
-              onClick={() => setIsProjectModalOpen(false)}
+              onClick={closeProjectModal}
               className="absolute inset-0 bg-slate-900/40 backdrop-blur-sm"
             />
             <motion.div
               initial={{ opacity: 0, scale: 0.95, y: 20 }}
               animate={{ opacity: 1, scale: 1, y: 0 }}
               exit={{ opacity: 0, scale: 0.95, y: 20 }}
-              className="relative bg-white rounded-3xl shadow-2xl w-full max-w-md p-8 text-slate-900"
+              role="dialog"
+              aria-modal="true"
+              aria-labelledby="project-form-title"
+              className="relative max-h-[90vh] w-full max-w-2xl overflow-y-auto rounded-3xl bg-white p-6 text-slate-900 shadow-2xl sm:p-8"
             >
-              <h2 className="text-2xl font-bold text-slate-900 mb-6">
-                {editingProjectId ? 'Rename Project' : 'New Project'}
+              <h2 id="project-form-title" className="mb-6 text-2xl font-bold text-slate-900">
+                {editingProjectId ? 'Edit Project' : 'Create Project'}
               </h2>
-              <form onSubmit={addProject} className="space-y-4">
+              <form onSubmit={addProject} className="space-y-5">
                 <div>
                   <label className="block text-xs font-bold text-slate-600 uppercase tracking-wider mb-1.5">Project Name</label>
                   <input
@@ -2181,10 +2877,19 @@ export default function App() {
                     className="w-full px-4 py-3 bg-white text-slate-900 placeholder:text-slate-400 rounded-xl border border-slate-200 focus:outline-none focus:ring-2 focus:ring-indigo-500/20 focus:border-indigo-500 transition-all font-medium"
                   />
                 </div>
+
+                <WorkflowConfigurator
+                  columns={projectWorkflowColumns}
+                  baseColumns={projectWorkflowBaseColumns}
+                  error={projectWorkflowError}
+                  onChange={setProjectWorkflowColumns}
+                  onError={setProjectWorkflowError}
+                />
+
                 <div className="flex gap-3 pt-4">
                   <button
                     type="button"
-                    onClick={() => setIsProjectModalOpen(false)}
+                    onClick={closeProjectModal}
                     className="flex-1 px-4 py-3 rounded-xl font-bold text-slate-700 hover:bg-slate-100 transition-colors"
                   >
                     Cancel
@@ -2193,7 +2898,7 @@ export default function App() {
                     type="submit"
                     className="flex-1 px-4 py-3 rounded-xl font-semibold bg-indigo-600 text-white hover:bg-indigo-700 shadow-lg shadow-indigo-200 transition-all"
                   >
-                    {editingProjectId ? 'Save Changes' : 'Create Project'}
+                    {editingProjectId ? 'Save Project' : 'Create Project'}
                   </button>
                 </div>
               </form>
@@ -2202,108 +2907,9 @@ export default function App() {
         )}
       </AnimatePresence>
 
-      {/* Workflow Columns Modal */}
+      {/* Project deletion confirmation */}
       <AnimatePresence>
-        {isWorkflowModalOpen && (
-          <div className="fixed inset-0 z-[65] flex items-center justify-center p-4">
-            <motion.div
-              initial={{ opacity: 0 }}
-              animate={{ opacity: 1 }}
-              exit={{ opacity: 0 }}
-              onClick={() => setIsWorkflowModalOpen(false)}
-              className="absolute inset-0 bg-slate-900/40 backdrop-blur-sm"
-            />
-            <motion.div
-              initial={{ opacity: 0, scale: 0.95, y: 20 }}
-              animate={{ opacity: 1, scale: 1, y: 0 }}
-              exit={{ opacity: 0, scale: 0.95, y: 20 }}
-              className="relative w-full max-w-lg rounded-3xl border border-slate-100 bg-white p-8 text-slate-900 shadow-2xl"
-            >
-              <div className="mb-6 flex items-start justify-between gap-4">
-                <div>
-                  <h2 className="text-2xl font-bold text-slate-900">Customize workflow</h2>
-                  <p className="mt-1 text-sm text-slate-500">Rename stages or move them into the order your team uses.</p>
-                </div>
-                <button
-                  type="button"
-                  onClick={() => setIsWorkflowModalOpen(false)}
-                  className="rounded-full p-2 text-slate-400 transition-colors hover:bg-slate-100 hover:text-slate-600"
-                  aria-label="Close workflow settings"
-                >
-                  <X size={20} />
-                </button>
-              </div>
-
-              <div className="max-h-[50vh] space-y-2 overflow-y-auto pr-1">
-                {workflowColumns.map((column, index) => (
-                  <div key={column.id} className="flex items-center gap-2 rounded-2xl border border-slate-200 bg-slate-50 p-2">
-                    <GripVertical size={16} className="shrink-0 text-slate-300" aria-hidden="true" />
-                    <input
-                      type="text"
-                      value={column.title}
-                      onChange={(event) => renameWorkflowColumn(column.id, event.target.value)}
-                      onBlur={() => normalizeWorkflowColumnName(column.id)}
-                      aria-label={`Rename ${column.title || 'workflow'} stage`}
-                      className="min-w-0 flex-1 rounded-xl border border-transparent bg-white px-3 py-2 text-sm font-semibold text-slate-800 outline-none transition-colors focus:border-indigo-400 focus:ring-2 focus:ring-indigo-500/10"
-                    />
-                    <button
-                      type="button"
-                      onClick={() => moveWorkflowColumn(column.id, -1)}
-                      disabled={index === 0}
-                      className="rounded-lg p-2 text-slate-500 transition-colors hover:bg-white hover:text-indigo-600 disabled:cursor-not-allowed disabled:opacity-25"
-                      aria-label={`Move ${column.title} left`}
-                    >
-                      <ArrowLeft size={15} />
-                    </button>
-                    <button
-                      type="button"
-                      onClick={() => moveWorkflowColumn(column.id, 1)}
-                      disabled={index === workflowColumns.length - 1}
-                      className="rounded-lg p-2 text-slate-500 transition-colors hover:bg-white hover:text-indigo-600 disabled:cursor-not-allowed disabled:opacity-25"
-                      aria-label={`Move ${column.title} right`}
-                    >
-                      <ArrowRight size={15} />
-                    </button>
-                    <button
-                      type="button"
-                      onClick={() => requestWorkflowColumnDeletion(column.id)}
-                      disabled={workflowColumns.length <= 1}
-                      className="rounded-lg p-2 text-slate-400 transition-colors hover:bg-rose-50 hover:text-rose-600 disabled:cursor-not-allowed disabled:opacity-25"
-                      aria-label={`Delete ${column.title} stage`}
-                      title={workflowColumns.length <= 1 ? 'A workflow needs at least one stage' : 'Delete stage'}
-                    >
-                      <Trash2 size={15} />
-                    </button>
-                  </div>
-                ))}
-              </div>
-
-              <form onSubmit={createWorkflowColumn} className="mt-6 flex gap-2 border-t border-slate-100 pt-6">
-                <input
-                  type="text"
-                  value={newColumnName}
-                  onChange={(event) => setNewColumnName(event.target.value)}
-                  placeholder="New stage, e.g. Under Review"
-                  aria-label="New workflow stage name"
-                  className="min-w-0 flex-1 rounded-xl border border-slate-200 bg-white px-4 py-2.5 text-sm font-medium text-slate-900 outline-none transition-colors focus:border-indigo-500 focus:ring-2 focus:ring-indigo-500/10"
-                />
-                <button
-                  type="submit"
-                  disabled={!newColumnName.trim()}
-                  className="flex items-center gap-2 rounded-xl bg-indigo-600 px-4 py-2.5 text-sm font-bold text-white transition-colors hover:bg-indigo-700 disabled:cursor-not-allowed disabled:opacity-40"
-                >
-                  <Plus size={16} />
-                  Add stage
-                </button>
-              </form>
-            </motion.div>
-          </div>
-        )}
-      </AnimatePresence>
-
-      {/* Delete Workflow Column Confirmation */}
-      <AnimatePresence>
-        {columnPendingDeletion && (
+        {projectPendingDeletion && (
           <div className="fixed inset-0 z-[80] flex items-center justify-center p-4">
             <motion.div
               initial={{ opacity: 0 }}
@@ -2315,38 +2921,102 @@ export default function App() {
               initial={{ opacity: 0, scale: 0.95, y: 16 }}
               animate={{ opacity: 1, scale: 1, y: 0 }}
               exit={{ opacity: 0, scale: 0.95, y: 16 }}
-              className="relative w-full max-w-md rounded-3xl bg-white p-8 text-slate-900 shadow-2xl"
+              role="alertdialog"
+              aria-modal="true"
+              aria-labelledby="delete-project-title"
+              className="relative w-full max-w-md rounded-3xl bg-white p-6 text-slate-900 shadow-2xl sm:p-8"
             >
-              <h2 className="text-xl font-bold">Move goals before deleting</h2>
-              <p className="mt-2 text-sm text-slate-500">
-                Choose where goals in “{workflowColumns.find(column => column.id === columnPendingDeletion)?.title}” should move.
+              <h2 id="delete-project-title" className="text-xl font-bold">Delete project with active sprints?</h2>
+              <p className="mt-2 text-sm leading-relaxed text-slate-500">
+                “{projects.find(project => project.id === projectPendingDeletion)?.name}” has {sprints.filter(sprint => sprint.projectId === projectPendingDeletion && sprint.status === 'active').length} active {sprints.filter(sprint => sprint.projectId === projectPendingDeletion && sprint.status === 'active').length === 1 ? 'sprint' : 'sprints'}. Deleting the project also deletes its sprints and goals. This cannot be undone.
               </p>
-              <select
-                value={columnMoveDestination}
-                onChange={(event) => setColumnMoveDestination(event.target.value)}
-                className="mt-5 w-full rounded-xl border border-slate-200 bg-slate-50 px-4 py-3 text-sm font-semibold text-slate-900 outline-none focus:border-indigo-500 focus:ring-2 focus:ring-indigo-500/10"
-              >
-                {workflowColumns.filter(column => column.id !== columnPendingDeletion).map(column => (
-                  <option key={column.id} value={column.id}>{column.title}</option>
-                ))}
-              </select>
-              <div className="mt-6 flex gap-3">
+              <div className="mt-6 flex flex-col-reverse gap-3 sm:flex-row">
                 <button
                   type="button"
-                  onClick={() => {
-                    setColumnPendingDeletion(null);
-                    setColumnMoveDestination('');
-                  }}
-                  className="flex-1 rounded-xl px-4 py-3 font-bold text-slate-600 transition-colors hover:bg-slate-100"
+                  onClick={() => setProjectPendingDeletion(null)}
+                  className="flex-1 rounded-xl px-4 py-3 font-bold text-slate-600 hover:bg-slate-100"
                 >
                   Cancel
                 </button>
                 <button
                   type="button"
-                  onClick={confirmWorkflowColumnDeletion}
-                  className="flex-1 rounded-xl bg-rose-600 px-4 py-3 font-bold text-white transition-colors hover:bg-rose-700"
+                  onClick={() => performDeleteProject(projectPendingDeletion)}
+                  className="flex-1 rounded-xl bg-rose-600 px-4 py-3 font-bold text-white hover:bg-rose-700"
                 >
-                  Move and delete
+                  Delete project
+                </button>
+              </div>
+            </motion.div>
+          </div>
+        )}
+      </AnimatePresence>
+
+      {/* Workflow goal migration confirmation */}
+      <AnimatePresence>
+        {pendingWorkflowColumns && (
+          <div className="fixed inset-0 z-[80] flex items-center justify-center p-4">
+            <motion.div
+              initial={{ opacity: 0 }}
+              animate={{ opacity: 1 }}
+              exit={{ opacity: 0 }}
+              className="absolute inset-0 bg-slate-900/50 backdrop-blur-sm"
+            />
+            <motion.div
+              initial={{ opacity: 0, scale: 0.95, y: 16 }}
+              animate={{ opacity: 1, scale: 1, y: 0 }}
+              exit={{ opacity: 0, scale: 0.95, y: 16 }}
+              role="alertdialog"
+              aria-modal="true"
+              aria-labelledby="workflow-migration-title"
+              className="relative w-full max-w-lg rounded-3xl bg-white p-6 text-slate-900 shadow-2xl sm:p-8"
+            >
+              <h2 id="workflow-migration-title" className="text-xl font-bold">Move goals before saving</h2>
+              <p className="mt-2 text-sm leading-relaxed text-slate-500">
+                This project workflow removes stages that contain goals. Choose a destination for each affected stage; the project and goal moves will be saved together.
+              </p>
+
+              <div className="mt-5 space-y-4">
+                {pendingRemovedWorkflowColumns.map(column => {
+                  const goalCount = goals.filter(goal => goal.projectId === editingProjectId && goal.status === column.id).length;
+                  return (
+                    <div key={column.id} className="rounded-2xl border border-slate-200 bg-slate-50 p-4">
+                      <label htmlFor={`migration-${column.id}`} className="block text-sm font-bold text-slate-800">
+                        {column.title} <span className="font-medium text-slate-500">({goalCount} {goalCount === 1 ? 'goal' : 'goals'})</span>
+                      </label>
+                      <select
+                        id={`migration-${column.id}`}
+                        value={workflowGoalMigrations[column.id] ?? ''}
+                        onChange={(event) => setWorkflowGoalMigrations(current => ({ ...current, [column.id]: event.target.value }))}
+                        className="mt-2 w-full rounded-xl border border-slate-200 bg-white px-4 py-3 text-sm font-semibold text-slate-900 outline-none focus:border-indigo-500 focus:ring-2 focus:ring-indigo-500/10"
+                      >
+                        <option value="">Choose a destination stage</option>
+                        {pendingWorkflowColumns.map(destination => (
+                          <option key={destination.id} value={destination.id}>{destination.title}</option>
+                        ))}
+                      </select>
+                    </div>
+                  );
+                })}
+              </div>
+
+              <div className="mt-6 flex flex-col-reverse gap-3 sm:flex-row">
+                <button
+                  type="button"
+                  onClick={() => {
+                    setPendingWorkflowColumns(null);
+                    setWorkflowGoalMigrations({});
+                  }}
+                  className="flex-1 rounded-xl px-4 py-3 font-bold text-slate-600 transition-colors hover:bg-slate-100"
+                >
+                  Back
+                </button>
+                <button
+                  type="button"
+                  disabled={!workflowMigrationsComplete}
+                  onClick={() => commitProject(pendingWorkflowColumns, workflowGoalMigrations)}
+                  className="flex-1 rounded-xl bg-indigo-600 px-4 py-3 font-bold text-white transition-colors hover:bg-indigo-700 disabled:cursor-not-allowed disabled:opacity-40"
+                >
+                  Save project and move goals
                 </button>
               </div>
             </motion.div>
