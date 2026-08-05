@@ -14,12 +14,18 @@ export function JsonGuide({ onClose }: JsonGuideProps) {
     {
       "id": "proj_123",
       "name": "Website Redesign",
-      "createdAt": 1710928371000
+      "createdAt": 1710928371000,
+      "workflowColumns": [
+        { "id": "todo", "title": "Backlog" },
+        { "id": "in-progress", "title": "Under Review" },
+        { "id": "done", "title": "Done" }
+      ]
     }
   ],
   "sprints": [
     {
       "id": "sprint_456",
+      "projectId": "proj_123",
       "name": "Sprint 1",
       "startDate": "2026-03-20",
       "endDate": "2026-04-03",
@@ -139,6 +145,7 @@ export function JsonGuide({ onClose }: JsonGuideProps) {
                 <li><code className="text-indigo-600 font-bold">id</code> (string, required): Unique identifier (e.g., UUID or custom string). Do not change existing IDs to maintain relationships.</li>
                 <li><code className="text-indigo-600 font-bold">name</code> (string, required): The display name of the project.</li>
                 <li><code className="text-indigo-600 font-bold">createdAt</code> (number, required): Unix timestamp in milliseconds.</li>
+                <li><code className="text-indigo-600 font-bold">workflowColumns</code> (array, required): Ordered workflow stages used by this project.</li>
               </ul>
             </div>
           </div>
@@ -151,6 +158,7 @@ export function JsonGuide({ onClose }: JsonGuideProps) {
             <div className="p-6">
               <ul className="space-y-3 text-sm">
                 <li><code className="text-indigo-600 font-bold">id</code> (string, required): Unique identifier.</li>
+                <li><code className="text-indigo-600 font-bold">projectId</code> (string, required): Must match the project that owns this sprint and its goals.</li>
                 <li><code className="text-indigo-600 font-bold">name</code> (string, required): Sprint name.</li>
                 <li><code className="text-indigo-600 font-bold">startDate</code> (string, required): ISO date string (YYYY-MM-DD).</li>
                 <li><code className="text-indigo-600 font-bold">endDate</code> (string, required): ISO date string (YYYY-MM-DD).</li>
@@ -194,7 +202,7 @@ export function JsonGuide({ onClose }: JsonGuideProps) {
                 <li><code className="text-indigo-600 font-bold">title</code> (string, required): Goal title.</li>
                 <li><code className="text-indigo-600 font-bold">description</code> (string, optional): Goal description.</li>
                 <li>
-                  <code className="text-indigo-600 font-bold">status</code> (string, required): ID of the matching entry in <code>workflowColumns</code>.
+                  <code className="text-indigo-600 font-bold">status</code> (string, required): ID of the matching entry in the goal’s project <code>workflowColumns</code>.
                 </li>
                 <li>
                   <code className="text-indigo-600 font-bold">lifecycleStatus</code> (string, required): Overall state. Allowed values:
