@@ -55,20 +55,45 @@ import {
   FileJson,
   Info,
   Search,
-  ShieldCheck
+  ShieldCheck,
+  Layers,
+  MessageSquare,
+  Sparkles
 } from 'lucide-react';
 import { motion, AnimatePresence } from 'motion/react';
 import { cn } from './lib/utils';
 import { getLocalStorageItemWithMigration, isLocalStorageAvailable, PREVIOUS_STORAGE_KEYS, setLocalStorageItem, STORAGE_KEYS } from './lib/storage';
-import { Goal, GoalStatus, BoardType, DEFAULT_WORKFLOW_COLUMNS, WorkflowColumn, Project, Priority, SuccessMetricType, SuccessMetric, Sprint, SprintLength, GoalLifecycleStatus, SprintStatus, Label } from './types';
+import { Goal, GoalStatus, BoardType, DEFAULT_WORKFLOW_COLUMNS, WorkflowColumn, Project, Priority, SuccessMetricType, SuccessMetric, Sprint, SprintLength, GoalLifecycleStatus, SprintStatus, Label, Epic, EpicStatus, NavFolder } from './types';
 import { JsonGuide } from './components/JsonGuide';
 import { AboutModal } from './components/AboutModal';
 import { ThemePicker } from './components/ThemePicker';
+import { Icon } from './components/Icon';
+import { MinibarNav } from './components/MinibarNav';
+import { GoalDetailModal } from './components/GoalDetailModal';
+import { MarkdownEditor } from './components/MarkdownEditor';
+import { MarkdownRenderer } from './components/MarkdownRenderer';
+import { SparkleWrapper } from './components/SparkleWrapper';
+import { StatsDashboard } from './components/StatsDashboard';
+import { 
+  generateStableGoalNumber, 
+  createActivityEvent, 
+  calculateGoalProgress, 
+  resolveGoalByQuery,
+  generateId 
+} from './lib/timeline';
+import {
+  createNavFolder,
+  deleteNavFolder,
+  moveItemToNavFolder,
+  toggleNavFolderCollapse,
+  renameNavFolder,
+} from './lib/folders';
 
 // --- Components ---
 
 interface GoalCardProps {
   goal: Goal;
+  allGoals: Goal[];
   labels: Label[];
   onDelete: (id: string) => void;
   isOverlay?: boolean;
@@ -76,8 +101,10 @@ interface GoalCardProps {
 
 interface SortableGoalCardProps {
   goal: Goal;
+  allGoals: Goal[];
   labels: Label[];
   sprints: Sprint[];
+  epics: Epic[];
   onDelete: (id: string) => void;
   onEdit: (goal: Goal) => void;
   onToggleChecklist: (goalId: string, itemId: string) => void;
@@ -85,12 +112,16 @@ interface SortableGoalCardProps {
   onUpdateLifecycle: (id: string, status: GoalLifecycleStatus) => void;
   onTogglePlannedForToday: (id: string) => void;
   onAssignSprint: (goalId: string, sprintId: string | null) => void;
+  onAssignEpic: (goalId: string, epicId: string | null) => void;
 }
 
-const SortableGoalCard = ({ goal, labels, sprints, onDelete, onEdit, onToggleChecklist, onUpdateNumeric, onUpdateLifecycle, onTogglePlannedForToday, onAssignSprint }: SortableGoalCardProps) => {
+const SortableGoalCard = ({ goal, allGoals, labels, sprints, epics, onDelete, onEdit, onToggleChecklist, onUpdateNumeric, onUpdateLifecycle, onTogglePlannedForToday, onAssignSprint, onAssignEpic }: SortableGoalCardProps) => {
   const [isSprintMenuOpen, setIsSprintMenuOpen] = useState(false);
+  const [isEpicMenuOpen, setIsEpicMenuOpen] = useState(false);
   const sprintMenuRef = useRef<HTMLDivElement>(null);
   const sprintButtonRef = useRef<HTMLButtonElement>(null);
+  const epicMenuRef = useRef<HTMLDivElement>(null);
+  const epicButtonRef = useRef<HTMLButtonElement>(null);
   const {
     attributes,
     listeners,
@@ -116,6 +147,12 @@ const SortableGoalCard = ({ goal, labels, sprints, onDelete, onEdit, onToggleChe
   );
   const currentSprint = goal.sprintId ? sprints.find(sprint => sprint.id === goal.sprintId) : undefined;
   const sprintActionLabel = currentSprint ? 'Change sprint' : 'Add to sprint';
+  const availableEpics = epics.filter(epic => epic.projectId === goal.projectId && epic.status !== 'archived');
+  const currentEpic = goal.epicId ? epics.find(epic => epic.id === goal.epicId) : undefined;
+  const epicActionLabel = currentEpic ? 'Change epic' : 'Add to epic';
+  const currentEpicGoals = currentEpic ? allGoals.filter(item => item.epicId === currentEpic.id) : [];
+  const currentEpicCompleted = currentEpicGoals.filter(item => item.lifecycleStatus === 'completed').length;
+  const currentEpicProgress = currentEpicGoals.length ? Math.round((currentEpicCompleted / currentEpicGoals.length) * 100) : 0;
 
   useEffect(() => {
     if (!isSprintMenuOpen) return;
@@ -138,6 +175,25 @@ const SortableGoalCard = ({ goal, labels, sprints, onDelete, onEdit, onToggleChe
     };
   }, [isSprintMenuOpen]);
 
+  useEffect(() => {
+    if (!isEpicMenuOpen) return;
+    const handlePointerDown = (event: PointerEvent) => {
+      if (!epicMenuRef.current?.contains(event.target as Node)) setIsEpicMenuOpen(false);
+    };
+    const handleKeyDown = (event: KeyboardEvent) => {
+      if (event.key === 'Escape') {
+        setIsEpicMenuOpen(false);
+        epicButtonRef.current?.focus();
+      }
+    };
+    document.addEventListener('pointerdown', handlePointerDown);
+    document.addEventListener('keydown', handleKeyDown);
+    return () => {
+      document.removeEventListener('pointerdown', handlePointerDown);
+      document.removeEventListener('keydown', handleKeyDown);
+    };
+  }, [isEpicMenuOpen]);
+
   if (isDragging) {
     return (
       <div
@@ -150,9 +206,9 @@ const SortableGoalCard = ({ goal, labels, sprints, onDelete, onEdit, onToggleChe
 
   const getPriorityColor = (p: Priority) => {
     switch (p) {
-      case 'high': return 'text-rose-500 bg-rose-50 border-rose-100';
-      case 'medium': return 'text-amber-500 bg-amber-50 border-amber-100';
-      case 'low': return 'text-emerald-500 bg-emerald-50 border-emerald-100';
+      case 'high': return 'text-rose-600 bg-rose-50 border-rose-200 badge-priority-high';
+      case 'medium': return 'text-amber-600 bg-amber-50 border-amber-200 badge-priority-medium';
+      case 'low': return 'text-emerald-600 bg-emerald-50 border-emerald-200 badge-priority-low';
     }
   };
 
@@ -167,25 +223,41 @@ const SortableGoalCard = ({ goal, labels, sprints, onDelete, onEdit, onToggleChe
         <div className="flex flex-col gap-1.5 pr-6">
           <div className="flex flex-wrap gap-1">
             <div className={cn(
-              "inline-flex items-center px-1.5 py-0.5 rounded text-[9px] font-bold uppercase tracking-wider border",
+              "badge badge-xs font-bold uppercase tracking-wider border gap-0.5",
               getPriorityColor(goal.priority)
             )}>
+              {goal.priority === 'high' && <Icon name="priority_high" size={10} weight={700} />}
+              {goal.priority === 'medium' && <Icon name="remove" size={10} weight={700} />}
+              {goal.priority === 'low' && <Icon name="keyboard_arrow_down" size={10} weight={700} />}
               {goal.priority}
             </div>
             {goal.plannedForToday && (
-              <div className="inline-flex items-center px-1.5 py-0.5 rounded text-[9px] font-bold uppercase tracking-wider border bg-amber-50 text-amber-600 border-amber-100">
-                <Zap size={8} className="mr-1 fill-amber-500" />
+              <div className="badge badge-xs font-bold uppercase tracking-wider border bg-amber-50 text-amber-700 border-amber-200 badge-today gap-1">
+                <Icon name="wb_sunny" size={10} filled className="text-amber-500" />
                 Today
+              </div>
+            )}
+            {currentEpic && (
+              <div className="badge badge-xs gap-1 border border-violet-200 bg-violet-50 font-bold text-violet-700 badge-epic-tag">
+                <Icon name="diamond" size={10} aria-hidden="true" />
+                <span className="max-w-28 truncate">{currentEpic.name}</span>
+                <span aria-hidden="true">· {currentEpicProgress}%</span>
+                <span className="sr-only">Epic</span>
               </div>
             )}
           </div>
           <div className="flex items-center gap-2">
+            {goal.number && (
+              <span className="text-xs font-bold text-text-muted shrink-0">
+                #{goal.number}
+              </span>
+            )}
             {goal.lifecycleStatus === 'completed' && (
-              <CheckCircle2 size={14} className="text-emerald-500 shrink-0" />
+              <Icon name="check_circle" size={16} filled className="text-emerald-500 shrink-0" />
             )}
             <h4 className={cn(
-              "font-semibold text-slate-800 leading-tight",
-              goal.lifecycleStatus === 'completed' && "text-slate-400 line-through"
+              "font-semibold text-text-primary leading-tight",
+              goal.lifecycleStatus === 'completed' && "text-text-disabled line-through"
             )}>
               {goal.title}
             </h4>
@@ -206,15 +278,56 @@ const SortableGoalCard = ({ goal, labels, sprints, onDelete, onEdit, onToggleChe
         </div>
         <div className={cn(
           "absolute right-2 top-2 flex items-center gap-1 opacity-0 transition-opacity group-hover:opacity-100 group-focus-within:opacity-100",
-          isSprintMenuOpen && "z-30 opacity-100"
+          (isSprintMenuOpen || isEpicMenuOpen) && "z-30 opacity-100"
         )}>
           <div 
             {...attributes} 
             {...listeners}
-            className="p-1 text-slate-300 hover:text-slate-500 cursor-grab active:cursor-grabbing"
+            className="p-1 text-text-muted hover:text-text-primary cursor-grab active:cursor-grabbing"
             onClick={(e) => e.stopPropagation()}
           >
             <GripVertical size={14} />
+          </div>
+          <div ref={epicMenuRef} className="relative" onClick={(event) => event.stopPropagation()}>
+            <button
+              ref={epicButtonRef}
+              type="button"
+              disabled={!goal.projectId}
+              onClick={() => setIsEpicMenuOpen(open => !open)}
+              className={cn(
+                "rounded p-1 transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-violet-500 disabled:cursor-not-allowed disabled:opacity-30 cursor-pointer",
+                currentEpic ? "text-violet-500 hover:text-violet-400" : "text-text-muted hover:text-violet-400"
+              )}
+              aria-label={epicActionLabel}
+              aria-haspopup="menu"
+              aria-expanded={isEpicMenuOpen}
+              title={epicActionLabel}
+            >
+              <Icon name="diamond" size={14} aria-hidden="true" />
+            </button>
+            {isEpicMenuOpen && (
+              <div role="menu" aria-label="Epic assignment" className="absolute right-0 top-full z-40 mt-2 w-64 rounded-2xl border border-border bg-card p-2 text-left shadow-xl">
+                <div className="px-2 py-2">
+                  <p className="text-xs font-bold text-text-primary">{epicActionLabel}</p>
+                  <p className="mt-0.5 truncate text-[10px] text-text-muted">{currentEpic ? `Current: ${currentEpic.name}` : 'Group this goal in an epic'}</p>
+                </div>
+                <div className="max-h-52 overflow-y-auto">
+                  {availableEpics.length ? availableEpics.map(epic => {
+                    const selected = epic.id === goal.epicId;
+                    return (
+                      <button key={epic.id} type="button" role="menuitemradio" aria-checked={selected}
+                        onClick={() => { onAssignEpic(goal.id, epic.id); setIsEpicMenuOpen(false); }}
+                        className={cn("flex w-full items-center gap-2 rounded-xl px-2.5 py-2 text-left transition-colors hover:bg-column focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-violet-500 cursor-pointer", selected && "bg-violet-500/15 text-violet-400")}
+                      >
+                        <span className={cn("flex h-5 w-5 shrink-0 items-center justify-center rounded-full border", selected ? "border-violet-500 bg-violet-500 text-white" : "border-border text-transparent")}><Check size={11} /></span>
+                        <span className="min-w-0 flex-1"><span className="block truncate text-xs font-semibold text-text-primary">{epic.name}</span><span className="block text-[9px] font-medium capitalize text-text-muted">{epic.status}</span></span>
+                      </button>
+                    );
+                  }) : <p className="px-2.5 py-3 text-xs text-text-muted">No available epics for this project.</p>}
+                </div>
+                {currentEpic && <button type="button" role="menuitem" onClick={() => { onAssignEpic(goal.id, null); setIsEpicMenuOpen(false); }} className="mt-1 w-full border-t border-border px-2.5 py-2.5 text-left text-xs font-semibold text-rose-500 hover:bg-rose-500/10 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-rose-500 cursor-pointer">Remove from epic</button>}
+              </div>
+            )}
           </div>
           <div ref={sprintMenuRef} className="relative" onClick={(event) => event.stopPropagation()}>
             <button
@@ -223,8 +336,8 @@ const SortableGoalCard = ({ goal, labels, sprints, onDelete, onEdit, onToggleChe
               disabled={!goal.projectId}
               onClick={() => setIsSprintMenuOpen(open => !open)}
               className={cn(
-                "rounded p-1 transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-indigo-500",
-                currentSprint ? "text-indigo-500 hover:text-indigo-700" : "text-slate-300 hover:text-indigo-500",
+                "rounded p-1 transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-indigo-500 cursor-pointer",
+                currentSprint ? "text-indigo-500 hover:text-indigo-400" : "text-text-muted hover:text-indigo-400",
                 "disabled:cursor-not-allowed disabled:opacity-30"
               )}
               aria-label={sprintActionLabel}
@@ -232,18 +345,18 @@ const SortableGoalCard = ({ goal, labels, sprints, onDelete, onEdit, onToggleChe
               aria-expanded={isSprintMenuOpen}
               title={sprintActionLabel}
             >
-              <Zap size={14} className={currentSprint ? "fill-indigo-100" : ""} aria-hidden="true" />
+              <Icon name="bolt" size={14} className={currentSprint ? "text-indigo-500" : ""} aria-hidden="true" />
             </button>
 
             {isSprintMenuOpen && (
               <div
                 role="menu"
                 aria-label="Sprint assignment"
-                className="absolute right-0 top-full z-40 mt-2 w-64 rounded-2xl border border-slate-200 bg-white p-2 text-left shadow-xl"
+                className="absolute right-0 top-full z-40 mt-2 w-64 rounded-2xl border border-border bg-card p-2 text-left shadow-xl"
               >
                 <div className="px-2 py-2">
-                  <p className="text-xs font-bold text-slate-800">{sprintActionLabel}</p>
-                  <p className="mt-0.5 truncate text-[10px] text-slate-500">
+                  <p className="text-xs font-bold text-text-primary">{sprintActionLabel}</p>
+                  <p className="mt-0.5 truncate text-[10px] text-text-muted">
                     {currentSprint ? `Current: ${currentSprint.name}` : 'Choose an active or upcoming sprint'}
                   </p>
                 </div>
@@ -262,24 +375,24 @@ const SortableGoalCard = ({ goal, labels, sprints, onDelete, onEdit, onToggleChe
                           setIsSprintMenuOpen(false);
                         }}
                         className={cn(
-                          "flex w-full items-center gap-2 rounded-xl px-2.5 py-2 text-left transition-colors hover:bg-slate-50 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-indigo-500",
-                          selected && "bg-indigo-50"
+                          "flex w-full items-center gap-2 rounded-xl px-2.5 py-2 text-left transition-colors hover:bg-column focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-indigo-500 cursor-pointer",
+                          selected && "bg-indigo-500/15 text-indigo-400"
                         )}
                       >
                         <span className={cn(
                           "flex h-5 w-5 shrink-0 items-center justify-center rounded-full border",
-                          selected ? "border-indigo-500 bg-indigo-500 text-white" : "border-slate-200 text-transparent"
+                          selected ? "border-indigo-500 bg-indigo-500 text-white" : "border-border text-transparent"
                         )}>
                           <Check size={11} aria-hidden="true" />
                         </span>
                         <span className="min-w-0 flex-1">
-                          <span className="block truncate text-xs font-semibold text-slate-800">{sprint.name}</span>
-                          <span className="block text-[9px] font-medium capitalize text-slate-400">{sprint.status}</span>
+                          <span className="block truncate text-xs font-semibold text-text-primary">{sprint.name}</span>
+                          <span className="block text-[9px] font-medium capitalize text-text-muted">{sprint.status}</span>
                         </span>
                       </button>
                     );
                   }) : (
-                    <p className="px-2.5 py-3 text-xs text-slate-500">No active or upcoming sprints.</p>
+                    <p className="px-2.5 py-3 text-xs text-text-muted">No active or upcoming sprints.</p>
                   )}
                 </div>
 
@@ -291,7 +404,7 @@ const SortableGoalCard = ({ goal, labels, sprints, onDelete, onEdit, onToggleChe
                       onAssignSprint(goal.id, null);
                       setIsSprintMenuOpen(false);
                     }}
-                    className="mt-1 w-full border-t border-slate-100 px-2.5 py-2.5 text-left text-xs font-semibold text-rose-600 transition-colors hover:bg-rose-50 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-rose-500"
+                    className="mt-1 w-full border-t border-border px-2.5 py-2.5 text-left text-xs font-semibold text-rose-500 transition-colors hover:bg-rose-500/10 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-rose-500 cursor-pointer"
                   >
                     Remove from sprint
                   </button>
@@ -300,77 +413,93 @@ const SortableGoalCard = ({ goal, labels, sprints, onDelete, onEdit, onToggleChe
             )}
           </div>
           <button
+            type="button"
             onClick={(e) => {
               e.stopPropagation();
               onDelete(goal.id);
             }}
-            className="p-1 text-slate-300 hover:text-rose-500 transition-colors"
+            className="p-1 text-text-muted hover:text-rose-500 transition-colors cursor-pointer"
             title="Delete"
+            aria-label="Delete goal"
           >
-            <Trash2 size={14} />
+            <Icon name="delete" size={14} />
           </button>
           {goal.lifecycleStatus !== 'completed' && (
             <button
+              type="button"
               onClick={(e) => {
                 e.stopPropagation();
                 onUpdateLifecycle(goal.id, 'completed');
               }}
-              className="p-1 text-slate-300 hover:text-emerald-500 transition-colors"
+              className="p-1 text-text-muted hover:text-emerald-500 transition-colors cursor-pointer"
               title="Mark Complete"
+              aria-label="Mark goal complete"
             >
-              <CheckCircle2 size={14} />
+              <Icon name="check_circle" size={14} />
             </button>
           )}
           {goal.lifecycleStatus === 'archived' ? (
             <button
+              type="button"
               onClick={(e) => {
                 e.stopPropagation();
                 onUpdateLifecycle(goal.id, 'active');
               }}
-              className="p-1 text-slate-300 hover:text-indigo-500 transition-colors"
+              className="p-1 text-text-muted hover:text-indigo-500 transition-colors cursor-pointer"
               title="Restore"
+              aria-label="Restore goal"
             >
-              <RotateCcw size={14} />
+              <Icon name="history" size={14} />
             </button>
           ) : (
             <button
+              type="button"
               onClick={(e) => {
                 e.stopPropagation();
                 onUpdateLifecycle(goal.id, 'archived');
               }}
-              className="p-1 text-slate-300 hover:text-amber-500 transition-colors"
+              className="p-1 text-text-muted hover:text-amber-500 transition-colors cursor-pointer"
               title="Archive"
+              aria-label="Archive goal"
             >
-              <Archive size={14} />
+              <Icon name="archive" size={14} />
             </button>
           )}
           <button
+            type="button"
             onClick={(e) => {
               e.stopPropagation();
               onTogglePlannedForToday(goal.id);
             }}
             className={cn(
-              "p-1 transition-colors",
-              goal.plannedForToday ? "text-amber-500" : "text-slate-300 hover:text-amber-400"
+              "p-1 transition-colors cursor-pointer rounded",
+              goal.plannedForToday ? "text-amber-500 hover:text-amber-600" : "text-text-muted hover:text-amber-500"
             )}
             title={goal.plannedForToday ? "Remove from Today" : "Plan for Today"}
+            aria-label={goal.plannedForToday ? "Remove from Today" : "Plan for Today"}
           >
-            <Zap size={14} className={goal.plannedForToday ? "fill-amber-500" : ""} />
+            <Icon 
+              name="wb_sunny" 
+              size={15} 
+              filled={goal.plannedForToday} 
+              className={goal.plannedForToday ? "text-amber-500" : ""} 
+              aria-hidden="true" 
+            />
           </button>
         </div>
       </div>
-      <p className="text-sm text-slate-500 line-clamp-2 mb-3">{goal.description}</p>
+      <p className="text-sm text-text-secondary line-clamp-2 mb-3">{goal.description}</p>
       
       {goal.successMetric && (
         <div className="mb-3 space-y-2" onClick={(e) => e.stopPropagation()}>
-          <div className="flex items-center justify-between text-[10px] font-bold text-slate-400 uppercase tracking-wider">
+          <div className="flex items-center justify-between text-[10px] font-bold text-text-muted uppercase tracking-wider">
             <div className="flex items-center gap-1">
               {goal.successMetric.type === 'checklist' && <ListTodo size={10} />}
               {goal.successMetric.type === 'milestones' && <Flag size={10} />}
               {goal.successMetric.type === 'numeric' && <Target size={10} />}
               <span>Progress</span>
             </div>
-            <span>
+            <span className="text-text-secondary font-semibold">
               {goal.successMetric.type === 'numeric' 
                 ? `${goal.successMetric.current || 0}/${goal.successMetric.target} ${goal.successMetric.unit || ''}`
                 : (goal.successMetric.type === 'checklist' || goal.successMetric.type === 'milestones')
@@ -386,15 +515,15 @@ const SortableGoalCard = ({ goal, labels, sprints, onDelete, onEdit, onToggleChe
                 <button
                   key={item.id}
                   onClick={() => onToggleChecklist(goal.id, item.id)}
-                  className="w-full flex items-center gap-2 text-[10px] text-slate-500 hover:text-slate-700 transition-colors text-left group/item"
+                  className="w-full flex items-center gap-2 text-[10px] text-text-secondary hover:text-text-primary transition-colors text-left group/item cursor-pointer"
                 >
                   <div className={cn(
                     "w-3 h-3 rounded border flex items-center justify-center transition-colors",
-                    item.completed ? "bg-emerald-500 border-emerald-500 text-white" : "border-slate-200 group-hover/item:border-slate-300"
+                    item.completed ? "bg-emerald-500 border-emerald-500 text-white" : "border-border group-hover/item:border-text-muted"
                   )}>
                     {item.completed && <Check size={8} strokeWidth={4} />}
                   </div>
-                  <span className={cn(item.completed && "line-through text-slate-300")}>{item.text}</span>
+                  <span className={cn(item.completed ? "line-through text-text-disabled" : "text-text-secondary")}>{item.text}</span>
                 </button>
               ))}
             </div>
@@ -406,13 +535,13 @@ const SortableGoalCard = ({ goal, labels, sprints, onDelete, onEdit, onToggleChe
                 <button
                   key={item.id}
                   onClick={() => onToggleChecklist(goal.id, item.id)}
-                  className="w-full flex items-start gap-3 text-[10px] text-slate-500 hover:text-slate-700 transition-colors text-left group/milestone relative"
+                  className="w-full flex items-start gap-3 text-[10px] text-text-secondary hover:text-text-primary transition-colors text-left group/milestone relative cursor-pointer"
                 >
                   {/* Vertical line between milestones */}
                   {idx < (goal.successMetric.items?.length || 0) - 1 && (
                     <div className={cn(
                       "absolute left-[5px] top-[14px] w-[1px] h-[calc(100%+4px)]",
-                      item.completed ? "bg-emerald-500" : "bg-slate-200"
+                      item.completed ? "bg-emerald-500" : "bg-border"
                     )} />
                   )}
                   
@@ -420,11 +549,11 @@ const SortableGoalCard = ({ goal, labels, sprints, onDelete, onEdit, onToggleChe
                     "w-[11px] h-[11px] rounded-full border-2 flex-shrink-0 mt-0.5 z-10 transition-all",
                     item.completed 
                       ? "bg-emerald-500 border-emerald-500 shadow-[0_0_8px_rgba(16,185,129,0.3)]" 
-                      : "bg-white border-slate-200 group-hover/milestone:border-slate-300"
+                      : "bg-card border-border group-hover/milestone:border-text-muted"
                   )} />
                   <span className={cn(
                     "font-medium leading-tight pt-0.5",
-                    item.completed ? "text-emerald-600" : "text-slate-500"
+                    item.completed ? "text-emerald-500 font-semibold" : "text-text-secondary"
                   )}>
                     {item.text}
                   </span>
@@ -435,7 +564,7 @@ const SortableGoalCard = ({ goal, labels, sprints, onDelete, onEdit, onToggleChe
 
           {goal.successMetric.type === 'numeric' && (
             <div className="flex items-center gap-2">
-              <div className="flex-1 h-1.5 bg-slate-100 rounded-full overflow-hidden">
+              <div className="flex-1 h-1.5 bg-column rounded-full overflow-hidden border border-border/30">
                 <div 
                   className="h-full bg-indigo-500 rounded-full transition-all duration-500"
                   style={{ 
@@ -446,13 +575,13 @@ const SortableGoalCard = ({ goal, labels, sprints, onDelete, onEdit, onToggleChe
               <div className="flex gap-1">
                 <button 
                   onClick={() => onUpdateNumeric(goal.id, -1)}
-                  className="w-5 h-5 flex items-center justify-center rounded bg-slate-100 text-slate-500 hover:bg-slate-200 transition-colors"
+                  className="w-5 h-5 flex items-center justify-center rounded bg-column text-text-secondary hover:text-text-primary hover:bg-card border border-border/40 transition-colors cursor-pointer"
                 >
                   <Minus size={10} />
                 </button>
                 <button 
                   onClick={() => onUpdateNumeric(goal.id, 1)}
-                  className="w-5 h-5 flex items-center justify-center rounded bg-slate-100 text-slate-500 hover:bg-slate-200 transition-colors"
+                  className="w-5 h-5 flex items-center justify-center rounded bg-column text-text-secondary hover:text-text-primary hover:bg-card border border-border/40 transition-colors cursor-pointer"
                 >
                   <Plus size={10} />
                 </button>
@@ -463,58 +592,91 @@ const SortableGoalCard = ({ goal, labels, sprints, onDelete, onEdit, onToggleChe
       )}
 
       <div className="flex items-center justify-between">
-        <div className="flex items-center gap-2 text-[10px] uppercase tracking-wider font-bold text-slate-400">
+        <div className="flex items-center gap-2 text-[10px] uppercase tracking-wider font-bold text-text-muted">
           <Calendar size={10} />
           <span>{new Date(goal.createdAt).toLocaleDateString()}</span>
         </div>
-        {goal.dueDate && (
-          <div className={cn(
-            "flex items-center gap-1 text-[10px] font-bold uppercase tracking-wider",
-            goal.dueDate < Date.now() ? "text-rose-500" : "text-slate-400"
-          )}>
-            <Clock size={10} />
-            <span>Due {new Date(goal.dueDate).toLocaleDateString()}</span>
-          </div>
-        )}
+        <div className="flex items-center gap-2.5">
+          {goal.comments && goal.comments.length > 0 && (
+            <div className="flex items-center gap-1 text-[10px] font-bold text-text-muted" title={`${goal.comments.length} comments`}>
+              <MessageSquare size={11} />
+              <span>{goal.comments.length}</span>
+            </div>
+          )}
+          {goal.dueDate && (
+            <div className={cn(
+              "flex items-center gap-1 text-[10px] font-bold uppercase tracking-wider",
+              goal.dueDate < Date.now() ? "text-rose-500" : "text-text-muted"
+            )}>
+              <Clock size={10} />
+              <span>Due {new Date(goal.dueDate).toLocaleDateString()}</span>
+            </div>
+          )}
+        </div>
       </div>
     </div>
   );
 };
 
-const StaticGoalCard = ({ goal, labels }: { goal: Goal, labels: Label[] }) => {
+const StaticGoalCard = ({ goal, allGoals = [], labels, epics = [], onEdit }: { goal: Goal, allGoals?: Goal[], labels: Label[], epics?: Epic[], onEdit?: (goal: Goal) => void }) => {
+  const currentEpic = goal.epicId ? epics.find(epic => epic.id === goal.epicId) : undefined;
+  const currentEpicGoals = currentEpic ? allGoals.filter(item => item.epicId === currentEpic.id) : [];
+  const currentEpicProgress = currentEpicGoals.length ? Math.round((currentEpicGoals.filter(item => item.lifecycleStatus === 'completed').length / currentEpicGoals.length) * 100) : 0;
   const getPriorityColor = (p: Priority) => {
     switch (p) {
-      case 'high': return 'text-rose-500 bg-rose-50 border-rose-100';
-      case 'medium': return 'text-amber-500 bg-amber-50 border-amber-100';
-      case 'low': return 'text-emerald-500 bg-emerald-50 border-emerald-100';
+      case 'high': return 'text-rose-600 bg-rose-50 border-rose-200 badge-priority-high';
+      case 'medium': return 'text-amber-600 bg-amber-50 border-amber-200 badge-priority-medium';
+      case 'low': return 'text-emerald-600 bg-emerald-50 border-emerald-200 badge-priority-low';
     }
   };
 
   return (
-    <div className="bg-white rounded-2xl p-4 shadow-sm border border-slate-200 w-full max-w-sm">
+    <div 
+      onClick={() => onEdit && onEdit(goal)}
+      className={cn(
+        "goal-card rounded-2xl p-4 shadow-sm border border-border w-full max-w-sm transition-all",
+        onEdit && "cursor-pointer hover:border-slate-400 hover:shadow-md"
+      )}
+    >
       <div className="flex justify-between items-start mb-2">
         <div className="flex flex-col gap-1.5 pr-6">
           <div className="flex flex-wrap gap-1">
             <div className={cn(
-              "inline-flex items-center px-1.5 py-0.5 rounded text-[9px] font-bold uppercase tracking-wider border",
+              "badge badge-xs font-bold uppercase tracking-wider border gap-0.5",
               getPriorityColor(goal.priority)
             )}>
+              {goal.priority === 'high' && <Icon name="priority_high" size={10} weight={700} />}
+              {goal.priority === 'medium' && <Icon name="remove" size={10} weight={700} />}
+              {goal.priority === 'low' && <Icon name="keyboard_arrow_down" size={10} weight={700} />}
               {goal.priority}
             </div>
             {goal.plannedForToday && (
-              <div className="inline-flex items-center px-1.5 py-0.5 rounded text-[9px] font-bold uppercase tracking-wider border bg-amber-50 text-amber-600 border-amber-100">
-                <Zap size={8} className="mr-1 fill-amber-500" />
+              <div className="badge badge-xs font-bold uppercase tracking-wider border bg-amber-50 text-amber-700 border-amber-200 badge-today gap-1">
+                <Icon name="wb_sunny" size={10} filled className="text-amber-500" />
                 Today
+              </div>
+            )}
+            {currentEpic && (
+              <div className="badge badge-xs gap-1 border border-violet-200 bg-violet-50 font-bold text-violet-700 badge-epic-tag">
+                <Icon name="diamond" size={10} aria-hidden="true" />
+                <span className="max-w-28 truncate">{currentEpic.name}</span>
+                <span aria-hidden="true">· {currentEpicProgress}%</span>
+                <span className="sr-only">Epic</span>
               </div>
             )}
           </div>
           <div className="flex items-center gap-2">
+            {goal.number && (
+              <span className="text-xs font-bold text-text-muted shrink-0">
+                #{goal.number}
+              </span>
+            )}
             {goal.lifecycleStatus === 'completed' && (
-              <CheckCircle2 size={14} className="text-emerald-500 shrink-0" />
+              <Icon name="check_circle" size={16} filled className="text-emerald-500 shrink-0" />
             )}
             <h4 className={cn(
-              "font-semibold text-slate-800 leading-tight",
-              goal.lifecycleStatus === 'completed' && "text-slate-400 line-through"
+              "font-semibold text-text-primary leading-tight",
+              goal.lifecycleStatus === 'completed' && "text-text-disabled line-through"
             )}>
               {goal.title}
             </h4>
@@ -534,18 +696,18 @@ const StaticGoalCard = ({ goal, labels }: { goal: Goal, labels: Label[] }) => {
           )}
         </div>
       </div>
-      <p className="text-sm text-slate-500 line-clamp-2 mb-3">{goal.description}</p>
+      <p className="text-sm text-text-secondary line-clamp-2 mb-3">{goal.description}</p>
       
       {goal.successMetric && (
         <div className="mb-3 space-y-2">
-          <div className="flex items-center justify-between text-[10px] font-bold text-slate-400 uppercase tracking-wider">
+          <div className="flex items-center justify-between text-[10px] font-bold text-text-muted uppercase tracking-wider">
             <div className="flex items-center gap-1">
               {goal.successMetric.type === 'checklist' && <ListTodo size={10} />}
               {goal.successMetric.type === 'milestones' && <Flag size={10} />}
               {goal.successMetric.type === 'numeric' && <Target size={10} />}
               <span>Progress</span>
             </div>
-            <span>
+            <span className="text-text-secondary font-semibold">
               {goal.successMetric.type === 'numeric' 
                 ? `${goal.successMetric.current || 0}/${goal.successMetric.target} ${goal.successMetric.unit || ''}`
                 : (goal.successMetric.type === 'checklist' || goal.successMetric.type === 'milestones')
@@ -560,15 +722,15 @@ const StaticGoalCard = ({ goal, labels }: { goal: Goal, labels: Label[] }) => {
               {goal.successMetric.items?.map((item) => (
                 <div
                   key={item.id}
-                  className="w-full flex items-center gap-2 text-[10px] text-slate-500 text-left"
+                  className="w-full flex items-center gap-2 text-[10px] text-text-secondary text-left"
                 >
                   <div className={cn(
                     "w-3 h-3 rounded border flex items-center justify-center",
-                    item.completed ? "bg-emerald-500 border-emerald-500 text-white" : "border-slate-200"
+                    item.completed ? "bg-emerald-500 border-emerald-500 text-white" : "border-border"
                   )}>
                     {item.completed && <Check size={8} strokeWidth={4} />}
                   </div>
-                  <span className={cn(item.completed && "line-through text-slate-300")}>{item.text}</span>
+                  <span className={cn(item.completed ? "line-through text-text-disabled" : "text-text-secondary")}>{item.text}</span>
                 </div>
               ))}
             </div>
@@ -579,23 +741,23 @@ const StaticGoalCard = ({ goal, labels }: { goal: Goal, labels: Label[] }) => {
               {goal.successMetric.items?.map((item, idx) => (
                 <div
                   key={item.id}
-                  className="w-full flex items-start gap-3 text-[10px] text-slate-500 text-left relative"
+                  className="w-full flex items-start gap-3 text-[10px] text-text-secondary text-left relative"
                 >
                   {/* Vertical line between milestones */}
                   {idx < (goal.successMetric.items?.length || 0) - 1 && (
                     <div className={cn(
                       "absolute left-[5px] top-[14px] w-[1px] h-[calc(100%+4px)]",
-                      item.completed ? "bg-emerald-500" : "bg-slate-200"
+                      item.completed ? "bg-emerald-500" : "bg-border"
                     )} />
                   )}
                   
                   <div className={cn(
                     "w-[11px] h-[11px] rounded-full border-2 flex-shrink-0 mt-0.5 z-10",
-                    item.completed ? "bg-emerald-500 border-emerald-500" : "bg-white border-slate-200"
+                    item.completed ? "bg-emerald-500 border-emerald-500" : "bg-card border-border"
                   )} />
                   <span className={cn(
                     "font-medium leading-tight pt-0.5",
-                    item.completed ? "text-emerald-600" : "text-slate-500"
+                    item.completed ? "text-emerald-500 font-semibold" : "text-text-secondary"
                   )}>
                     {item.text}
                   </span>
@@ -605,7 +767,7 @@ const StaticGoalCard = ({ goal, labels }: { goal: Goal, labels: Label[] }) => {
           )}
 
           {goal.successMetric.type === 'numeric' && (
-            <div className="h-1.5 bg-slate-100 rounded-full overflow-hidden">
+            <div className="h-1.5 bg-column rounded-full overflow-hidden border border-border/30">
               <div 
                 className="h-full bg-indigo-500 rounded-full transition-all duration-500"
                 style={{ 
@@ -618,19 +780,27 @@ const StaticGoalCard = ({ goal, labels }: { goal: Goal, labels: Label[] }) => {
       )}
 
       <div className="flex items-center justify-between">
-        <div className="flex items-center gap-2 text-[10px] uppercase tracking-wider font-bold text-slate-400">
+        <div className="flex items-center gap-2 text-[10px] uppercase tracking-wider font-bold text-text-muted">
           <Calendar size={10} />
           <span>{new Date(goal.createdAt).toLocaleDateString()}</span>
         </div>
-        {goal.dueDate && (
-          <div className={cn(
-            "flex items-center gap-1 text-[10px] font-bold uppercase tracking-wider",
-            goal.dueDate < Date.now() ? "text-rose-500" : "text-slate-400"
-          )}>
-            <Clock size={10} />
-            <span>Due {new Date(goal.dueDate).toLocaleDateString()}</span>
-          </div>
-        )}
+        <div className="flex items-center gap-2.5">
+          {goal.comments && goal.comments.length > 0 && (
+            <div className="flex items-center gap-1 text-[10px] font-bold text-text-muted" title={`${goal.comments.length} comments`}>
+              <MessageSquare size={11} />
+              <span>{goal.comments.length}</span>
+            </div>
+          )}
+          {goal.dueDate && (
+            <div className={cn(
+              "flex items-center gap-1 text-[10px] font-bold uppercase tracking-wider",
+              goal.dueDate < Date.now() ? "text-rose-500" : "text-text-muted"
+            )}>
+              <Clock size={10} />
+              <span>Due {new Date(goal.dueDate).toLocaleDateString()}</span>
+            </div>
+          )}
+        </div>
       </div>
     </div>
   );
@@ -640,8 +810,10 @@ interface KanbanColumnProps {
   id: GoalStatus;
   title: string;
   goals: Goal[];
+  allGoals: Goal[];
   labels: Label[];
   sprints: Sprint[];
+  epics: Epic[];
   onDelete: (id: string) => void;
   onAdd: (status: GoalStatus) => void;
   onEdit: (goal: Goal) => void;
@@ -650,9 +822,10 @@ interface KanbanColumnProps {
   onUpdateLifecycle: (id: string, status: GoalLifecycleStatus) => void;
   onTogglePlannedForToday: (id: string) => void;
   onAssignSprint: (goalId: string, sprintId: string | null) => void;
+  onAssignEpic: (goalId: string, epicId: string | null) => void;
 }
 
-const KanbanColumn: React.FC<KanbanColumnProps> = ({ id, title, goals, labels, sprints, onDelete, onAdd, onEdit, onToggleChecklist, onUpdateNumeric, onUpdateLifecycle, onTogglePlannedForToday, onAssignSprint }) => {
+const KanbanColumn: React.FC<KanbanColumnProps> = ({ id, title, goals, allGoals, labels, sprints, epics, onDelete, onAdd, onEdit, onToggleChecklist, onUpdateNumeric, onUpdateLifecycle, onTogglePlannedForToday, onAssignSprint, onAssignEpic }) => {
   const { setNodeRef } = useSortable({
     id: id,
     data: {
@@ -676,39 +849,20 @@ const KanbanColumn: React.FC<KanbanColumnProps> = ({ id, title, goals, labels, s
             {goals.length}
           </span>
         </div>
-        {goals.length > 0 && (
-          <button
-            type="button"
-            onClick={() => onAdd(id)}
-            className="inline-flex h-9 w-9 shrink-0 items-center justify-center rounded-lg border border-transparent text-text-muted opacity-100 transition-all hover:border-border hover:bg-card hover:text-accent focus-visible:border-border focus-visible:bg-card focus-visible:text-accent focus-visible:opacity-100 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent focus-visible:ring-offset-2 sm:pointer-events-none sm:opacity-0 sm:group-hover/column:pointer-events-auto sm:group-hover/column:opacity-100 sm:focus-visible:pointer-events-auto"
-            aria-label={`Add goal to ${title}`}
-            title={`Add goal to ${title}`}
-          >
-            <Plus size={17} aria-hidden="true" />
-          </button>
-        )}
+        <button
+          type="button"
+          onClick={() => onAdd(id)}
+          className="inline-flex h-8 w-8 shrink-0 items-center justify-center rounded-lg border border-transparent text-text-muted opacity-80 transition-all hover:border-border hover:bg-card hover:text-accent hover:opacity-100 focus-visible:border-border focus-visible:bg-card focus-visible:text-accent focus-visible:opacity-100 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent focus-visible:ring-offset-2 cursor-pointer"
+          aria-label={`Add goal to ${title}`}
+          title={`Add goal to ${title}`}
+        >
+          <Plus size={16} aria-hidden="true" />
+        </button>
       </div>
 
       <div className="kanban-column__body">
         <SortableContext items={goals.map(g => g.id)} strategy={verticalListSortingStrategy}>
-          {goals.length === 0 ? (
-            <div className="kanban-empty-state">
-              <div className="flex h-11 w-11 items-center justify-center rounded-xl border border-border bg-card text-text-muted">
-                <Target size={20} aria-hidden="true" />
-              </div>
-              <div>
-                <p className="font-semibold text-text">No goals in this stage</p>
-                <button
-                  type="button"
-                  onClick={() => onAdd(id)}
-                  className="mt-1 rounded-sm text-sm font-medium text-accent underline decoration-accent/40 underline-offset-4 transition-colors hover:decoration-accent focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent focus-visible:ring-offset-2"
-                  aria-label={`Create a goal in ${title}`}
-                >
-                  Create a goal
-                </button>
-              </div>
-            </div>
-          ) : (
+          {goals.length > 0 ? (
             <AnimatePresence mode="popLayout">
               {goals.map((goal) => (
                 <motion.div
@@ -721,8 +875,10 @@ const KanbanColumn: React.FC<KanbanColumnProps> = ({ id, title, goals, labels, s
                 >
                   <SortableGoalCard 
                     goal={goal} 
+                    allGoals={allGoals}
                     labels={labels}
                     sprints={sprints}
+                    epics={epics}
                     onDelete={onDelete}
                     onEdit={onEdit}
                     onToggleChecklist={onToggleChecklist}
@@ -730,10 +886,16 @@ const KanbanColumn: React.FC<KanbanColumnProps> = ({ id, title, goals, labels, s
                     onUpdateLifecycle={onUpdateLifecycle}
                     onTogglePlannedForToday={onTogglePlannedForToday}
                     onAssignSprint={onAssignSprint}
+                    onAssignEpic={onAssignEpic}
                   />
                 </motion.div>
               ))}
             </AnimatePresence>
+          ) : (
+            <div 
+              className="flex-1 min-h-[160px] rounded-2xl border-2 border-dashed border-border/40 bg-column/20 transition-colors flex items-center justify-center pointer-events-none select-none"
+              aria-label={`Empty ${title} drop zone`}
+            />
           )}
         </SortableContext>
       </div>
@@ -760,20 +922,21 @@ const SidebarItem: React.FC<SidebarItemProps> = ({ icon, label, description, ari
     aria-pressed={active}
     aria-label={ariaLabel ?? label}
     title={title}
+    style={active && activeTone !== 'amber' ? { backgroundColor: 'color-mix(in srgb, var(--accent) 12%, transparent)', color: 'var(--accent)' } : undefined}
     className={cn(
-      "flex w-full items-center gap-3 rounded-xl px-3 py-2 text-left text-sm font-semibold transition-all",
+      "flex w-full items-center gap-3 rounded-xl px-3 py-2 text-left text-sm font-semibold transition-all cursor-pointer",
       active
         ? activeTone === 'amber'
           ? "bg-amber-50 text-amber-700 shadow-sm ring-1 ring-amber-200"
-          : "bg-indigo-50 text-indigo-700"
-        : "text-slate-500 hover:bg-slate-50 hover:text-slate-700",
+          : "font-bold shadow-xs"
+        : "text-text-muted hover:bg-column/60 hover:text-text",
       className
     )}
   >
     {icon}
     <span className="min-w-0 flex-1">
       <span className="block truncate">{label}</span>
-      {description && <span className="block truncate text-[9px] font-normal text-slate-400">{description}</span>}
+      {description && <span className="block truncate text-[9px] font-normal text-text-muted opacity-80">{description}</span>}
     </span>
   </button>
 );
@@ -1048,6 +1211,8 @@ export default function App() {
   const [activeProjectId, setActiveProjectId] = useState<string>('');
   const [goals, setGoals] = useState<Goal[]>([]);
   const [activeGoal, setActiveGoal] = useState<Goal | null>(null);
+  const [selectedGoalId, setSelectedGoalId] = useState<string | null>(null);
+  const dragInitialGoalRef = useRef<{ id: string; status: GoalStatus } | null>(null);
   const [isModalOpen, setIsModalOpen] = useState(false);
   const [isProjectModalOpen, setIsProjectModalOpen] = useState(false);
   const [newGoalStatus, setNewGoalStatus] = useState<GoalStatus>(DEFAULT_WORKFLOW_COLUMNS[0].id);
@@ -1063,6 +1228,7 @@ export default function App() {
   const [priority, setPriority] = useState<Priority>('medium');
   const [dueDate, setDueDate] = useState<string>('');
   const [sprintId, setSprintId] = useState<string>('');
+  const [epicId, setEpicId] = useState<string>('');
   const [lifecycleStatus, setLifecycleStatus] = useState<GoalLifecycleStatus>('active');
   const [metricType, setMetricType] = useState<SuccessMetricType>('checklist');
   const [targetValue, setTargetValue] = useState<string>('');
@@ -1084,10 +1250,15 @@ export default function App() {
   const [editingSprintId, setEditingSprintId] = useState<string | null>(null);
 
   const [sprints, setSprints] = useState<Sprint[]>([]);
+  const [epics, setEpics] = useState<Epic[]>([]);
+  const [folders, setFolders] = useState<NavFolder[]>([]);
   const [activeSprintId, setActiveSprintId] = useState<string | null>(null);
+  const [activeEpicId, setActiveEpicId] = useState<string | null>(null);
   const [isSprintModalOpen, setIsSprintModalOpen] = useState(false);
+  const [isEpicModalOpen, setIsEpicModalOpen] = useState(false);
   const [showArchived, setShowArchived] = useState(false);
   const [isFocusMode, setIsFocusMode] = useState(false);
+  const [isStatsMode, setIsStatsMode] = useState(false);
 
   // Form state for sprints
   const [sprintName, setSprintName] = useState('');
@@ -1099,6 +1270,13 @@ export default function App() {
   const [pendingSprintMove, setPendingSprintMove] = useState<{ sprint: Sprint; goalsToMove: Goal[]; goalsNeedingStage: Goal[] } | null>(null);
   const [sprintMoveGoalStageId, setSprintMoveGoalStageId] = useState('');
   const [projectPendingDeletion, setProjectPendingDeletion] = useState<string | null>(null);
+
+  // Form state for epics
+  const [editingEpicId, setEditingEpicId] = useState<string | null>(null);
+  const [epicName, setEpicName] = useState('');
+  const [epicDescription, setEpicDescription] = useState('');
+  const [epicStatus, setEpicStatus] = useState<EpicStatus>('planned');
+  const [epicFormError, setEpicFormError] = useState<string | null>(null);
 
   // Import/Export state
   const [isImportModalOpen, setIsImportModalOpen] = useState(false);
@@ -1115,11 +1293,15 @@ export default function App() {
     newProjects: number;
     newGoals: number;
     newSprints: number;
+    newEpics: number;
     newLabels: number;
+    newFolders: number;
     skippedProjects: number;
     skippedGoals: number;
     skippedSprints: number;
+    skippedEpics: number;
     skippedLabels: number;
+    skippedFolders: number;
   } | null>(null);
   const [importResult, setImportResult] = useState<string | null>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
@@ -1129,8 +1311,21 @@ export default function App() {
     const savedGoals = getLocalStorageItemWithMigration(STORAGE_KEYS.goals, PREVIOUS_STORAGE_KEYS.goals);
     const savedProjects = getLocalStorageItemWithMigration(STORAGE_KEYS.projects, PREVIOUS_STORAGE_KEYS.projects);
     const savedSprints = getLocalStorageItemWithMigration(STORAGE_KEYS.sprints, PREVIOUS_STORAGE_KEYS.sprints);
+    const savedEpics = getLocalStorageItemWithMigration(STORAGE_KEYS.epics, PREVIOUS_STORAGE_KEYS.epics);
     const savedLabels = getLocalStorageItemWithMigration(STORAGE_KEYS.labels, PREVIOUS_STORAGE_KEYS.labels);
+    const savedFolders = getLocalStorageItemWithMigration(STORAGE_KEYS.folders, PREVIOUS_STORAGE_KEYS.folders);
     const savedWorkflowColumns = getLocalStorageItemWithMigration(STORAGE_KEYS.workflowColumns, PREVIOUS_STORAGE_KEYS.workflowColumns);
+
+    if (savedFolders) {
+      try {
+        const parsedFolders = JSON.parse(savedFolders);
+        if (Array.isArray(parsedFolders)) {
+          setFolders(parsedFolders);
+        }
+      } catch (e) {
+        console.error('Failed to parse folders', e);
+      }
+    }
 
     let legacyWorkflowColumns: WorkflowColumn[] = DEFAULT_WORKFLOW_COLUMNS.map(column => ({ ...column }));
     if (savedWorkflowColumns) {
@@ -1177,7 +1372,33 @@ export default function App() {
     if (savedGoals) {
       try {
         const parsedGoals = JSON.parse(savedGoals);
-        loadedGoals = Array.isArray(parsedGoals) ? parsedGoals : [];
+        if (Array.isArray(parsedGoals)) {
+          let nextNumber = 1;
+          loadedGoals = parsedGoals.map((g: Partial<Goal>, idx: number) => {
+            const num = typeof g.number === 'number' && g.number > 0 ? g.number : nextNumber++;
+            if (num >= nextNumber) nextNumber = num + 1;
+
+            const existingActivities = Array.isArray(g.activities) && g.activities.length > 0
+              ? g.activities
+              : [
+                  {
+                    id: `init-${g.id || idx}`,
+                    goalId: g.id || '',
+                    type: 'created' as const,
+                    actor: 'You',
+                    timestamp: g.createdAt || Date.now(),
+                    message: 'Created this goal',
+                  },
+                ];
+
+            return {
+              ...g,
+              number: num,
+              activities: existingActivities,
+              comments: Array.isArray(g.comments) ? g.comments : [],
+            } as Goal;
+          });
+        }
         setGoals(loadedGoals);
       } catch (e) {
         console.error('Failed to parse goals', e);
@@ -1200,6 +1421,16 @@ export default function App() {
         setSprints(migratedSprints);
       } catch (e) {
         console.error('Failed to parse sprints', e);
+      }
+    }
+
+    if (savedEpics) {
+      try {
+        const parsedEpics = JSON.parse(savedEpics);
+        const validProjectIds = new Set(loadedProjects.map(project => project.id));
+        setEpics(Array.isArray(parsedEpics) ? parsedEpics.filter((epic: Partial<Epic>) => epic.projectId && validProjectIds.has(epic.projectId)) : []);
+      } catch (e) {
+        console.error('Failed to parse epics', e);
       }
     }
 
@@ -1251,11 +1482,13 @@ export default function App() {
     const saved = [
       setLocalStorageItem(STORAGE_KEYS.goals, JSON.stringify(goals)),
       setLocalStorageItem(STORAGE_KEYS.sprints, JSON.stringify(sprints)),
+      setLocalStorageItem(STORAGE_KEYS.epics, JSON.stringify(epics)),
       setLocalStorageItem(STORAGE_KEYS.labels, JSON.stringify(labels)),
+      setLocalStorageItem(STORAGE_KEYS.folders, JSON.stringify(folders)),
       setLocalStorageItem(STORAGE_KEYS.workflowColumns, JSON.stringify(activeWorkflowForLegacy)),
     ].every(Boolean);
     if (!saved) setStorageAvailable(false);
-  }, [goals, projects, sprints, labels, activeProjectId, hasLoadedStorage]);
+  }, [goals, projects, sprints, epics, labels, folders, activeProjectId, hasLoadedStorage]);
 
   const requestPersistentStorage = async () => {
     if (!navigator.storage?.persist) {
@@ -1299,8 +1532,97 @@ export default function App() {
     }
   }, [activeProjectId, activeSprintId, sprints]);
 
+  useEffect(() => {
+    if (activeEpicId && !epics.some(epic => epic.id === activeEpicId && epic.projectId === activeProjectId)) {
+      setActiveEpicId(null);
+    }
+  }, [activeProjectId, activeEpicId, epics]);
+
+  useEffect(() => {
+    if (!hasLoadedStorage) return;
+    setGoals(currentGoals => {
+      let changed = false;
+      const nextGoals = currentGoals.map(goal => {
+        if (!goal.epicId) return goal;
+        const epicIsValid = epics.some(epic => epic.id === goal.epicId && epic.projectId === goal.projectId);
+        if (epicIsValid) return goal;
+        changed = true;
+        return { ...goal, epicId: undefined };
+      });
+      return changed ? nextGoals : currentGoals;
+    });
+  }, [epics, hasLoadedStorage]);
+
+  // URL route synchronization and details view openers
+  const openGoalDetails = (goal: Goal) => {
+    setSelectedGoalId(goal.id);
+    const targetPath = `/goals/${goal.number || goal.id}`;
+    if (window.location.pathname !== targetPath) {
+      try {
+        window.history.pushState({ goalId: goal.id }, '', targetPath);
+      } catch {
+        window.location.hash = `/goals/${goal.number || goal.id}`;
+      }
+    }
+  };
+
+  const closeGoalDetails = () => {
+    setSelectedGoalId(null);
+    if (window.location.pathname.startsWith('/goals')) {
+      try {
+        window.history.pushState(null, '', '/');
+      } catch {
+        window.location.hash = '';
+      }
+    } else if (window.location.hash.includes('goals/')) {
+      window.location.hash = '';
+    }
+  };
+
+  useEffect(() => {
+    const handleUrlRoute = () => {
+      const path = window.location.pathname;
+      const hash = window.location.hash;
+      const search = window.location.search;
+
+      let goalQuery: string | null = null;
+
+      const pathMatch = path.match(/^\/goals\/(.+)$/);
+      if (pathMatch) {
+        goalQuery = decodeURIComponent(pathMatch[1]);
+      } else if (hash.startsWith('#/goals/') || hash.startsWith('#goals/')) {
+        goalQuery = decodeURIComponent(hash.replace(/^#\/?goals\//, ''));
+      } else {
+        const params = new URLSearchParams(search);
+        if (params.has('goal')) {
+          goalQuery = params.get('goal');
+        }
+      }
+
+      if (goalQuery) {
+        const found = resolveGoalByQuery(goals, goalQuery);
+        if (found) {
+          setSelectedGoalId(found.id);
+        }
+      }
+    };
+
+    if (hasLoadedStorage && goals.length > 0) {
+      handleUrlRoute();
+    }
+
+    window.addEventListener('popstate', handleUrlRoute);
+    window.addEventListener('hashchange', handleUrlRoute);
+    return () => {
+      window.removeEventListener('popstate', handleUrlRoute);
+      window.removeEventListener('hashchange', handleUrlRoute);
+    };
+  }, [hasLoadedStorage, goals]);
+
+  const selectedGoal = selectedGoalId ? goals.find(g => g.id === selectedGoalId) || null : null;
   const activeProject = projects.find(p => p.id === activeProjectId);
   const workflowColumns = activeProject?.workflowColumns ?? DEFAULT_WORKFLOW_COLUMNS;
+
 
   const openCreateProjectModal = () => {
     const defaultWorkflow = DEFAULT_WORKFLOW_COLUMNS.map(column => ({ ...column }));
@@ -1394,6 +1716,7 @@ export default function App() {
     setProjects(newProjects);
     setGoals(goals.filter(g => g.projectId !== id));
     setSprints(sprints.filter(s => s.projectId !== id));
+    setEpics(epics.filter(epic => epic.projectId !== id));
     if (activeProjectId === id) {
       setActiveProjectId(newProjects[0].id);
     }
@@ -1482,6 +1805,7 @@ export default function App() {
             ...goal,
             projectId: sprint.projectId,
             status: statusIsValid ? goal.status : destinationStageId,
+            epicId: goal.epicId && epics.some(epic => epic.id === goal.epicId && epic.projectId === sprint.projectId) ? goal.epicId : undefined,
           };
         }));
       }
@@ -1548,13 +1872,119 @@ export default function App() {
       if (!destinationSprint) return;
     }
 
-    setGoals(currentGoals => currentGoals.map(item => item.id === goalId ? { ...item, sprintId: sprintId || undefined } : item));
+    const oldSprintName = sprints.find(s => s.id === goal.sprintId)?.name;
+    const newSprintName = sprintId ? sprints.find(s => s.id === sprintId)?.name : undefined;
+    const activityEvent = createActivityEvent(
+      goalId,
+      'sprint_changed',
+      { from: oldSprintName, to: newSprintName }
+    );
+
+    setGoals(currentGoals => currentGoals.map(item => item.id === goalId ? {
+      ...item,
+      sprintId: sprintId || undefined,
+      activities: [...(item.activities || []), activityEvent],
+    } : item));
+
     setSprints(currentSprints => currentSprints.map(sprint => ({
       ...sprint,
       goalIds: sprint.id === sprintId
         ? Array.from(new Set([...(sprint.goalIds ?? []), goalId]))
         : (sprint.goalIds ?? []).filter(id => id !== goalId),
     })));
+  };
+
+  const openCreateEpicModal = () => {
+    setEditingEpicId(null);
+    setEpicName('');
+    setEpicDescription('');
+    setEpicStatus('planned');
+    setEpicFormError(null);
+    setIsEpicModalOpen(true);
+  };
+
+  const openEditEpicModal = (epic: Epic) => {
+    setEditingEpicId(epic.id);
+    setEpicName(epic.name);
+    setEpicDescription(epic.description);
+    setEpicStatus(epic.status);
+    setEpicFormError(null);
+    setIsEpicModalOpen(true);
+  };
+
+  const closeEpicModal = () => {
+    setIsEpicModalOpen(false);
+    setEditingEpicId(null);
+    setEpicFormError(null);
+  };
+
+  const saveEpic = (event: React.FormEvent) => {
+    event.preventDefault();
+    if (!epicName.trim()) {
+      setEpicFormError('Epic name is required.');
+      return;
+    }
+    if (!activeProjectId) {
+      setEpicFormError('Choose a project before creating an epic.');
+      return;
+    }
+    if (editingEpicId) {
+      setEpics(current => current.map(epic => epic.id === editingEpicId ? {
+        ...epic,
+        name: epicName.trim(),
+        description: epicDescription.trim(),
+        status: epicStatus,
+      } : epic));
+      if (epicStatus === 'archived') {
+        setGoals(current => current.map(goal => goal.epicId === editingEpicId ? { ...goal, epicId: undefined } : goal));
+        if (activeEpicId === editingEpicId) setActiveEpicId(null);
+      }
+    } else {
+      const newEpic: Epic = {
+        id: Math.random().toString(36).substring(2, 9),
+        projectId: activeProjectId,
+        name: epicName.trim(),
+        description: epicDescription.trim(),
+        status: epicStatus,
+        createdAt: Date.now(),
+      };
+      setEpics(current => [...current, newEpic]);
+      setActiveEpicId(newEpic.id);
+      setActiveSprintId(null);
+    }
+    closeEpicModal();
+  };
+
+  const updateEpicStatus = (id: string, status: EpicStatus) => {
+    setEpics(current => current.map(epic => epic.id === id ? { ...epic, status } : epic));
+    if (status === 'archived') {
+      setGoals(current => current.map(goal => goal.epicId === id ? { ...goal, epicId: undefined } : goal));
+      if (activeEpicId === id) setActiveEpicId(null);
+    }
+  };
+
+  const deleteEpic = (id: string) => {
+    setEpics(current => current.filter(epic => epic.id !== id));
+    setGoals(current => current.map(goal => goal.epicId === id ? { ...goal, epicId: undefined } : goal));
+    if (activeEpicId === id) setActiveEpicId(null);
+  };
+
+  const assignGoalToEpic = (goalId: string, epicId: string | null) => {
+    const goal = goals.find(item => item.id === goalId);
+    if (!goal?.projectId) return;
+    if (epicId && !epics.some(epic => epic.id === epicId && epic.projectId === goal.projectId && epic.status !== 'archived')) return;
+    const oldEpicName = epics.find(e => e.id === goal.epicId)?.name;
+    const newEpicName = epicId ? epics.find(e => e.id === epicId)?.name : undefined;
+    const activityEvent = createActivityEvent(
+      goalId,
+      'epic_changed',
+      { from: oldEpicName, to: newEpicName }
+    );
+    setGoals(current => current.map(item => item.id === goalId ? {
+      ...item,
+      epicId: epicId || undefined,
+      activities: [...(item.activities || []), activityEvent],
+    } : item));
   };
 
   const sensors = useSensors(
@@ -1570,7 +2000,9 @@ export default function App() {
 
   const handleDragStart = (event: DragStartEvent) => {
     if (event.active.data.current?.type === 'Goal') {
-      setActiveGoal(event.active.data.current.goal);
+      const g = event.active.data.current.goal as Goal;
+      setActiveGoal(g);
+      dragInitialGoalRef.current = { id: g.id, status: g.status };
     }
   };
 
@@ -1618,6 +2050,29 @@ export default function App() {
   };
 
   const handleDragEnd = (event: DragEndEvent) => {
+    const initial = dragInitialGoalRef.current;
+    if (initial) {
+      const currentGoal = goals.find(g => g.id === initial.id);
+      if (currentGoal && currentGoal.status !== initial.status) {
+        const oldColName = workflowColumns.find(c => c.id === initial.status)?.title || initial.status;
+        const newColName = workflowColumns.find(c => c.id === currentGoal.status)?.title || currentGoal.status;
+        
+        const activityEvent = createActivityEvent(
+          currentGoal.id,
+          'status_changed',
+          { from: oldColName, to: newColName }
+        );
+
+        setGoals(prevGoals =>
+          prevGoals.map(g =>
+            g.id === currentGoal.id
+              ? { ...g, activities: [...(g.activities || []), activityEvent] }
+              : g
+          )
+        );
+      }
+    }
+    dragInitialGoalRef.current = null;
     setActiveGoal(null);
   };
 
@@ -1687,6 +2142,18 @@ export default function App() {
     }
 
     if (editingGoalId) {
+      const existing = goals.find(g => g.id === editingGoalId);
+      const changes: string[] = [];
+      if (existing && existing.title !== title) changes.push(`title to "${title}"`);
+      if (existing && existing.status !== newGoalStatus) changes.push(`status to "${newGoalStatus}"`);
+      if (existing && existing.priority !== priority) changes.push(`priority to "${priority}"`);
+      
+      const updateActivity = createActivityEvent(
+        editingGoalId,
+        'title_changed',
+        { message: changes.length ? `Updated ${changes.join(', ')}` : 'Updated goal properties' }
+      );
+
       setGoals(goals.map(g => g.id === editingGoalId ? {
         ...g,
         title,
@@ -1694,18 +2161,31 @@ export default function App() {
         priority,
         dueDate: dueDate ? new Date(dueDate).getTime() : undefined,
         sprintId: sprintId || undefined,
+        epicId: epicId && epics.some(epic => epic.id === epicId && epic.projectId === g.projectId) ? epicId : undefined,
         status: newGoalStatus,
         lifecycleStatus,
         successMetric,
         plannedForToday,
-        labelIds
+        labelIds,
+        activities: [...(g.activities || []), updateActivity],
       } : g));
       setEditingGoalId(null);
     } else {
+      const newGoalId = generateId();
+      const newNumber = generateStableGoalNumber(goals);
+      const createdActivity = createActivityEvent(
+        newGoalId,
+        'created',
+        { message: 'Created this goal' },
+        'You'
+      );
+
       const newGoal: Goal = {
-        id: Math.random().toString(36).substring(2, 9),
+        id: newGoalId,
+        number: newNumber,
         projectId: activeProjectId,
         sprintId: sprintId || undefined,
+        epicId: epicId && epics.some(epic => epic.id === epicId && epic.projectId === activeProjectId) ? epicId : undefined,
         title,
         description,
         status: newGoalStatus,
@@ -1716,6 +2196,8 @@ export default function App() {
         successMetric,
         plannedForToday,
         labelIds,
+        activities: [createdActivity],
+        comments: [],
         createdAt: Date.now(),
       };
       setGoals([...goals, newGoal]);
@@ -1726,45 +2208,32 @@ export default function App() {
   };
 
   const openEditModal = (goal: Goal) => {
-    setEditingGoalId(goal.id);
-    setTitle(goal.title);
-    setDescription(goal.description);
-    setPriority(goal.priority);
-    setDueDate(goal.dueDate ? new Date(goal.dueDate).toISOString().split('T')[0] : '');
-    setSprintId(goal.sprintId || '');
-    setNewGoalStatus(goal.status);
-    setLifecycleStatus(goal.lifecycleStatus);
-    setPlannedForToday(goal.plannedForToday || false);
-    setLabelIds(goal.labelIds || []);
-    setEditingLabelId(null);
-    setNewLabelName('');
-    setNewLabelColor('bg-indigo-500');
-    if (goal.successMetric) {
-      setMetricType(goal.successMetric.type);
-      if (goal.successMetric.type === 'numeric') {
-        setTargetValue(goal.successMetric.target?.toString() || '');
-        setUnit(goal.successMetric.unit || '');
-      } else if (goal.successMetric.type === 'checklist' || goal.successMetric.type === 'milestones') {
-        setChecklistItems(goal.successMetric.items?.map(i => i.text) || ['']);
-      }
-    } else {
-      setMetricType('checklist');
-      setChecklistItems(['']);
-    }
-    setIsModalOpen(true);
+    openGoalDetails(goal);
   };
 
   const toggleChecklistItem = (goalId: string, itemId: string) => {
     setGoals(goals.map(g => {
       if (g.id === goalId && (g.successMetric?.type === 'checklist' || g.successMetric?.type === 'milestones')) {
+        const oldProgress = calculateGoalProgress(g);
+        const updatedItems = g.successMetric.items?.map(item => 
+          item.id === itemId ? { ...item, completed: !item.completed } : item
+        );
+        const updatedMetric = {
+          ...g.successMetric,
+          items: updatedItems,
+        };
+        const tempGoal = { ...g, successMetric: updatedMetric };
+        const newProgress = calculateGoalProgress(tempGoal);
+        const activityEvent = createActivityEvent(
+          goalId,
+          'progress_changed',
+          { from: oldProgress, to: newProgress }
+        );
+
         return {
           ...g,
-          successMetric: {
-            ...g.successMetric,
-            items: g.successMetric.items?.map(item => 
-              item.id === itemId ? { ...item, completed: !item.completed } : item
-            )
-          }
+          successMetric: updatedMetric,
+          activities: [...(g.activities || []), activityEvent],
         };
       }
       return g;
@@ -1774,14 +2243,26 @@ export default function App() {
   const updateNumericProgress = (goalId: string, delta: number) => {
     setGoals(goals.map(g => {
       if (g.id === goalId && g.successMetric?.type === 'numeric') {
+        const oldProgress = calculateGoalProgress(g);
         const current = g.successMetric.current || 0;
         const target = g.successMetric.target || 1;
+        const newCurrent = Math.max(0, Math.min(target, current + delta));
+        const updatedMetric = {
+          ...g.successMetric,
+          current: newCurrent,
+        };
+        const tempGoal = { ...g, successMetric: updatedMetric };
+        const newProgress = calculateGoalProgress(tempGoal);
+        const activityEvent = createActivityEvent(
+          goalId,
+          'progress_changed',
+          { from: oldProgress, to: newProgress }
+        );
+
         return {
           ...g,
-          successMetric: {
-            ...g.successMetric,
-            current: Math.max(0, Math.min(target, current + delta))
-          }
+          successMetric: updatedMetric,
+          activities: [...(g.activities || []), activityEvent],
         };
       }
       return g;
@@ -1794,6 +2275,7 @@ export default function App() {
     setPriority('medium');
     setDueDate('');
     setSprintId('');
+    setEpicId('');
     setLifecycleStatus('active');
     setMetricType('checklist');
     setTargetValue('');
@@ -1823,7 +2305,17 @@ export default function App() {
         } else if (status === 'active' && g.lifecycleStatus === 'completed') {
           newStatus = workflowColumns[0]?.id ?? g.status;
         }
-        return { ...g, lifecycleStatus: status, status: newStatus };
+        const activityEvent = createActivityEvent(
+          id,
+          'lifecycle_changed',
+          { from: g.lifecycleStatus, to: status }
+        );
+        return { 
+          ...g, 
+          lifecycleStatus: status, 
+          status: newStatus,
+          activities: [...(g.activities || []), activityEvent],
+        };
       }
       return g;
     }));
@@ -1844,8 +2336,24 @@ export default function App() {
   };
 
   const togglePlannedForToday = (id: string) => {
-    setGoals(goals.map(g => g.id === id ? { ...g, plannedForToday: !g.plannedForToday } : g));
+    setGoals(goals.map(g => {
+      if (g.id === id) {
+        const nextPlanned = !g.plannedForToday;
+        const activityEvent = createActivityEvent(
+          id,
+          'progress_changed',
+          { message: nextPlanned ? 'marked goal as Planned for Today' : 'removed goal from Planned for Today' }
+        );
+        return { 
+          ...g, 
+          plannedForToday: nextPlanned,
+          activities: [...(g.activities || []), activityEvent],
+        };
+      }
+      return g;
+    }));
   };
+
 
   const addChecklistItem = () => {
     setChecklistItems([...checklistItems, '']);
@@ -1862,12 +2370,67 @@ export default function App() {
     setChecklistItems(checklistItems.filter((_, i) => i !== index));
   };
 
+  // Folder Handlers
+  const handleCreateFolder = (name: string, tab: 'projects' | 'sprints' | 'epics' | 'labels' | 'views' | 'all') => {
+    const newFolder = createNavFolder(name, tab, folders);
+    setFolders(prev => [...prev, newFolder]);
+  };
+
+  const handleRenameFolder = (folderId: string, newName: string) => {
+    setFolders(prev => renameNavFolder(folderId, newName, prev));
+  };
+
+  const handleDeleteFolder = (folderId: string) => {
+    const { updatedFolders, updatedItems: updatedProjects } = deleteNavFolder(folderId, folders, projects);
+    const { updatedItems: updatedSprints } = deleteNavFolder(folderId, folders, sprints);
+    const { updatedItems: updatedEpics } = deleteNavFolder(folderId, folders, epics);
+    const { updatedItems: updatedLabels } = deleteNavFolder(folderId, folders, labels);
+
+    setFolders(updatedFolders);
+    setProjects(updatedProjects);
+    setSprints(updatedSprints);
+    setEpics(updatedEpics);
+    setLabels(updatedLabels);
+  };
+
+  const handleToggleFolderCollapse = (folderId: string) => {
+    setFolders(prev => toggleNavFolderCollapse(folderId, prev));
+  };
+
+  const handleMoveProjectToFolder = (projectId: string, folderId: string | null) => {
+    setProjects(prev => moveItemToNavFolder(projectId, folderId, prev));
+  };
+
+  const handleMoveSprintToFolder = (sprintId: string, folderId: string | null) => {
+    setSprints(prev => moveItemToNavFolder(sprintId, folderId, prev));
+  };
+
+  const handleMoveEpicToFolder = (epicId: string, folderId: string | null) => {
+    setEpics(prev => moveItemToNavFolder(epicId, folderId, prev));
+  };
+
+  const handleMoveLabelToFolder = (labelId: string, folderId: string | null) => {
+    setLabels(prev => moveItemToNavFolder(labelId, folderId, prev));
+  };
+
+  const handleCreateLabelWithFolder = (name: string, color: string = 'bg-indigo-500', folderId?: string) => {
+    const newLabel: Label = {
+      id: Math.random().toString(36).substring(2, 9),
+      name: name.trim(),
+      color,
+      folderId,
+    };
+    setLabels(prev => [...prev, newLabel]);
+  };
+
   const exportData = () => {
     const data = {
       projects,
       goals,
       sprints,
+      epics,
       labels,
+      folders,
       workflowColumns
     };
     const blob = new Blob([JSON.stringify(data, null, 2)], { type: 'application/json' });
@@ -1901,22 +2464,32 @@ export default function App() {
         const existingProjectIds = new Set(projects.map(p => p.id));
         const existingGoalIds = new Set(goals.map(g => g.id));
         const existingSprintIds = new Set(sprints.map(s => s.id));
+        const existingEpicIds = new Set(epics.map(epic => epic.id));
         const existingLabelIds = new Set(labels.map(l => l.id));
+        const existingFolderIds = new Set(folders.map(f => f.id));
 
         const newProjects = parsed.projects.filter((p: Project) => !existingProjectIds.has(p.id));
         const newGoals = parsed.goals.filter((g: Goal) => !existingGoalIds.has(g.id));
         const newSprints = parsed.sprints.filter((s: Sprint) => !existingSprintIds.has(s.id));
+        const parsedEpics: Epic[] = Array.isArray(parsed.epics) ? parsed.epics : [];
+        const newEpics = parsedEpics.filter(epic => !existingEpicIds.has(epic.id));
         const newLabels = (parsed.labels || []).filter((l: Label) => !existingLabelIds.has(l.id));
+        const parsedFolders: NavFolder[] = Array.isArray(parsed.folders) ? parsed.folders : [];
+        const newFolders = parsedFolders.filter((f: NavFolder) => !existingFolderIds.has(f.id));
 
         setImportSummary({
           newProjects: newProjects.length,
           newGoals: newGoals.length,
           newSprints: newSprints.length,
+          newEpics: newEpics.length,
           newLabels: newLabels.length,
+          newFolders: newFolders.length,
           skippedProjects: parsed.projects.length - newProjects.length,
           skippedGoals: parsed.goals.length - newGoals.length,
           skippedSprints: parsed.sprints.length - newSprints.length,
+          skippedEpics: parsedEpics.length - newEpics.length,
           skippedLabels: (parsed.labels || []).length - newLabels.length,
+          skippedFolders: parsedFolders.length - newFolders.length,
         });
 
         setImportData(content);
@@ -1949,6 +2522,10 @@ export default function App() {
           : importedWorkflowColumns.map(column => ({ ...column })),
       })) as Project[] : [];
       const importedGoals: Goal[] = Array.isArray(parsed.goals) ? parsed.goals : [];
+      const importedEpics: Epic[] = Array.isArray(parsed.epics)
+        ? parsed.epics.filter((epic: Partial<Epic>) => epic.projectId && importedProjects.some(project => project.id === epic.projectId))
+        : [];
+      const importedFolders: NavFolder[] = Array.isArray(parsed.folders) ? parsed.folders : [];
       const importedSprints: Sprint[] = Array.isArray(parsed.sprints) ? parsed.sprints.map((sprint: Partial<Sprint>) => {
         const inferredProjectId = importedGoals.find(goal => goal.sprintId === sprint.id)?.projectId;
         const projectId = sprint.projectId && importedProjects.some(project => project.id === sprint.projectId)
@@ -1963,6 +2540,8 @@ export default function App() {
         setProjects(importedProjects);
         setGoals(importedGoals);
         setSprints(importedSprints);
+        setEpics(importedEpics);
+        setFolders(importedFolders);
         if (parsed.labels) setLabels(parsed.labels);
         if (importedProjects.length > 0) {
           setNewGoalStatus(importedProjects[0].workflowColumns[0].id);
@@ -1975,17 +2554,23 @@ export default function App() {
         const existingProjectIds = new Set(projects.map(p => p.id));
         const existingGoalIds = new Set(goals.map(g => g.id));
         const existingSprintIds = new Set(sprints.map(s => s.id));
+        const existingEpicIds = new Set(epics.map(epic => epic.id));
         const existingLabelIds = new Set(labels.map(l => l.id));
+        const existingFolderIds = new Set(folders.map(f => f.id));
         const newProjects = importedProjects.filter((p: Project) => !existingProjectIds.has(p.id));
         const newGoals = importedGoals.filter((g: Goal) => !existingGoalIds.has(g.id));
         const newSprints = importedSprints.filter((s: Sprint) => !existingSprintIds.has(s.id));
+        const newEpics = importedEpics.filter(epic => !existingEpicIds.has(epic.id));
         const newLabels = (parsed.labels || []).filter((l: Label) => !existingLabelIds.has(l.id));
+        const newFolders = importedFolders.filter(f => !existingFolderIds.has(f.id));
         setProjects([...projects, ...newProjects]);
         setGoals([...goals, ...newGoals]);
         setSprints([...sprints, ...newSprints]);
+        setEpics([...epics, ...newEpics]);
         setLabels([...labels, ...newLabels]);
+        setFolders([...folders, ...newFolders]);
 
-        setImportResult(`Import complete: ${newProjects.length} projects, ${newGoals.length} goals, ${newSprints.length} sprints, ${newLabels.length} labels added.`);
+        setImportResult(`Import complete: ${newProjects.length} projects, ${newGoals.length} goals, ${newSprints.length} sprints, ${newEpics.length} epics, ${newFolders.length} folders added.`);
       }
       
       setImportData(null);
@@ -2007,6 +2592,7 @@ export default function App() {
     return g.projectId === activeProjectId &&
       g.board === activeBoard &&
       (activeSprintId ? g.sprintId === activeSprintId : true) &&
+      (activeEpicId ? g.epicId === activeEpicId : true) &&
       (showArchived ? g.lifecycleStatus === 'archived' : g.lifecycleStatus !== 'archived') &&
       (activeLabelFilter ? g.labelIds?.includes(activeLabelFilter) : true) &&
       matchesSearch;
@@ -2019,6 +2605,10 @@ export default function App() {
   const totalGoalsCount = sprintGoals.length;
   const remainingGoalsCount = totalGoalsCount - completedGoalsCount;
   const progressPercentage = totalGoalsCount > 0 ? (completedGoalsCount / totalGoalsCount) * 100 : 0;
+  const activeEpic = epics.find(epic => epic.id === activeEpicId && epic.projectId === activeProjectId);
+  const activeEpicGoals = activeEpic ? goals.filter(goal => goal.epicId === activeEpic.id) : [];
+  const activeEpicCompletedGoals = activeEpicGoals.filter(goal => goal.lifecycleStatus === 'completed').length;
+  const activeEpicProgress = activeEpicGoals.length ? Math.round((activeEpicCompletedGoals / activeEpicGoals.length) * 100) : 0;
 
   const today = new Date();
   today.setHours(0, 0, 0, 0);
@@ -2044,379 +2634,105 @@ export default function App() {
     : [];
   const workflowMigrationsComplete = pendingRemovedWorkflowColumns.every(column => Boolean(workflowGoalMigrations[column.id]));
 
+  const hasEmptyColumn = workflowColumns.some(column => {
+    return filteredGoals.filter(goal => goal.status === column.id).length === 0;
+  });
+
   return (
     <div className="min-h-screen flex bg-bg">
-      {/* Sidebar */}
-      <aside className="w-64 bg-sidebar border-r border-border flex flex-col h-screen sticky top-0">
-        <div className="p-6 flex items-center gap-3 border-b border-border">
-          <div className="w-8 h-8 bg-accent rounded-lg flex items-center justify-center text-white shadow-lg shadow-accent/20">
-            <CheckCircle2 size={18} />
-          </div>
-          <h1 className="text-lg font-bold tracking-tight text-text">KanbanGXP</h1>
-        </div>
-
-        <div className="border-b border-border p-4">
-          <div className="mb-2 flex items-center justify-between px-1">
-            <p id="goal-context-label" className="text-[10px] font-bold uppercase tracking-widest text-text-muted">Goal context</p>
-            <span className="text-[9px] font-semibold text-text-muted">{activeBoard}</span>
-          </div>
-          <div className="grid grid-cols-2 gap-1 rounded-xl bg-column p-1" role="radiogroup" aria-labelledby="goal-context-label">
-            <button
-              type="button"
-              role="radio"
-              aria-checked={activeBoard === 'Work'}
-              aria-label="Show work goals"
-              title="Show goals in the Work context"
-              onClick={() => setActiveBoard('Work')}
-              className={cn(
-                "flex min-h-9 items-center justify-center gap-1.5 rounded-lg px-2 py-2 text-xs font-bold transition-all focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent focus-visible:ring-offset-1",
-                activeBoard === 'Work'
-                  ? "bg-card text-accent shadow-sm"
-                  : "text-text-muted hover:bg-card/70 hover:text-text"
-              )}
-            >
-              <Briefcase size={14} aria-hidden="true" />
-              Work goals
-            </button>
-            <button
-              type="button"
-              role="radio"
-              aria-checked={activeBoard === 'Life'}
-              aria-label="Show life goals"
-              title="Show goals in the Life context"
-              onClick={() => setActiveBoard('Life')}
-              className={cn(
-                "flex min-h-9 items-center justify-center gap-1.5 rounded-lg px-2 py-2 text-xs font-bold transition-all focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent focus-visible:ring-offset-1",
-                activeBoard === 'Life'
-                  ? "bg-card text-accent shadow-sm"
-                  : "text-text-muted hover:bg-card/70 hover:text-text"
-              )}
-            >
-              <Heart size={14} aria-hidden="true" />
-              Life goals
-            </button>
-          </div>
-        </div>
-
-        <div className="flex-1 overflow-y-auto p-4 space-y-6">
-          <div>
-            <div className="flex items-center justify-between mb-3 px-2">
-              <h2 className="text-[10px] font-bold text-slate-400 uppercase tracking-widest">Projects</h2>
-              <button 
-                onClick={openCreateProjectModal}
-                className="p-1 hover:bg-slate-100 rounded text-slate-400 hover:text-indigo-600 transition-colors"
-                aria-label="Create project"
-              >
-                <Plus size={14} />
-              </button>
-            </div>
-            <div className="space-y-1">
-              {projects.map(project => (
-                <div key={project.id} className="group relative">
-                  <SidebarItem
-                    onClick={() => setActiveProjectId(project.id)}
-                    active={activeProjectId === project.id}
-                    icon={<Folder size={16} className={activeProjectId === project.id ? "text-indigo-600" : "text-slate-400"} />}
-                    label={project.name}
-                    className="pr-14"
-                  />
-                  <div className="absolute right-2 top-1/2 -translate-y-1/2 opacity-0 group-hover:opacity-100 flex gap-1">
-                    <button 
-                      onClick={(e) => {
-                        e.stopPropagation();
-                        openEditProjectModal(project);
-                      }}
-                      className="p-1 text-slate-400 hover:text-indigo-600 transition-colors"
-                      aria-label={`Edit ${project.name}`}
-                    >
-                      <Edit2 size={12} />
-                    </button>
-                    {projects.length > 1 && (
-                      <button 
-                        onClick={(e) => {
-                          e.stopPropagation();
-                          deleteProject(project.id);
-                        }}
-                        className="p-1 text-slate-400 hover:text-red-500 transition-colors"
-                      >
-                        <Trash2 size={12} />
-                      </button>
-                    )}
-                  </div>
-                </div>
-              ))}
-            </div>
-          </div>
-
-          {/* Board-level views */}
-          <div>
-            <div className="mb-3 flex items-center justify-between px-2">
-              <h2 className="text-[10px] font-bold uppercase tracking-widest text-slate-400">Views</h2>
-            </div>
-            <div className="space-y-1">
-              <SidebarItem
-                onClick={() => {
-                  setActiveSprintId(null);
-                  setIsFocusMode(false);
-                }}
-                active={activeSprintId === null && !isFocusMode && !showArchived}
-                icon={<LayoutGrid size={16} className={activeSprintId === null && !isFocusMode && !showArchived ? "text-indigo-600" : "text-slate-400"} />}
-                label="All Goals"
-              />
-              <div className="relative">
-                <SidebarItem
-                  onClick={() => setIsFocusMode(!isFocusMode)}
-                  active={isFocusMode}
-                  activeTone="amber"
-                  icon={<Zap size={16} className={isFocusMode ? "fill-amber-500 text-amber-500" : "text-slate-400"} />}
-                  label="Focus Mode"
-                  className="pr-12"
-                />
-                {goals.filter(g => g.plannedForToday && g.lifecycleStatus !== 'completed').length > 0 && (
-                  <span className="pointer-events-none absolute right-3 top-1/2 -translate-y-1/2 rounded-full bg-amber-500 px-1.5 py-0.5 text-[10px] font-bold text-white">
-                    {goals.filter(g => g.plannedForToday && g.lifecycleStatus !== 'completed').length}
-                  </span>
-                )}
-              </div>
-              {showArchived ? (
-                <SidebarItem
-                  onClick={() => setShowArchived(false)}
-                  active
-                  activeTone="amber"
-                  icon={<ArrowLeft size={16} className="text-amber-600" />}
-                  label="Exit archive"
-                  ariaLabel="Exit archive and view active goals and sprints"
-                  title="Return to active goals and sprints"
-                />
-              ) : (
-                <SidebarItem
-                  onClick={() => setShowArchived(true)}
-                  icon={<Archive size={16} className="text-slate-400" />}
-                  label="Archived goals"
-                  ariaLabel="View archived goals and sprints"
-                  title="Show archived goals and sprints"
-                />
-              )}
-            </div>
-          </div>
-
-          {/* Sprints Section */}
-          <div>
-            <div className="flex items-center justify-between mb-3 px-2">
-              <h2 className="text-[10px] font-bold text-slate-400 uppercase tracking-widest">Sprints</h2>
-              <button 
-                onClick={openCreateSprintModal}
-                className="p-1 hover:bg-slate-100 rounded text-slate-400 hover:text-indigo-600 transition-colors"
-                aria-label={`Create sprint for ${activeProject?.name ?? 'current project'}`}
-              >
-                <Plus size={14} />
-              </button>
-            </div>
-            <div className="space-y-1">
-              {sprints
-                .filter(s => s.projectId === activeProjectId && (showArchived ? s.status === 'archived' : s.status !== 'archived'))
-                .map(sprint => (
-                <div key={sprint.id} className="group relative">
-                  <SidebarItem
-                    onClick={() => setActiveSprintId(sprint.id)}
-                    active={activeSprintId === sprint.id}
-                    icon={<Zap size={16} className={activeSprintId === sprint.id ? "text-indigo-600" : "text-slate-400"} />}
-                    label={sprint.name}
-                    description={`${new Date(sprint.startDate).toLocaleDateString(undefined, { month: 'short', day: 'numeric' })} - ${new Date(sprint.endDate).toLocaleDateString(undefined, { month: 'short', day: 'numeric' })}`}
-                    className="pr-20"
-                  />
-                  <div className="absolute right-2 top-1/2 -translate-y-1/2 opacity-0 group-hover:opacity-100 flex gap-1">
-                    <button 
-                      onClick={(e) => {
-                        e.stopPropagation();
-                        openEditSprintModal(sprint);
-                      }}
-                      className="p-1 text-slate-400 hover:text-indigo-600 transition-colors"
-                      aria-label={`Edit ${sprint.name}`}
-                    >
-                      <Edit2 size={12} />
-                    </button>
-                    {sprint.status === 'archived' ? (
-                      <button 
-                        onClick={(e) => {
-                          e.stopPropagation();
-                          updateSprintStatus(sprint.id, 'completed');
-                        }}
-                        className="p-1 text-slate-400 hover:text-indigo-600 transition-colors"
-                        title="Restore"
-                      >
-                        <RotateCcw size={12} />
-                      </button>
-                    ) : (
-                      <button 
-                        onClick={(e) => {
-                          e.stopPropagation();
-                          updateSprintStatus(sprint.id, 'archived');
-                        }}
-                        className="p-1 text-slate-400 hover:text-amber-500 transition-colors"
-                        title="Archive"
-                      >
-                        <Archive size={12} />
-                      </button>
-                    )}
-                    <button 
-                      onClick={(e) => {
-                        e.stopPropagation();
-                        deleteSprint(sprint.id);
-                      }}
-                      className="p-1 text-slate-400 hover:text-red-500 transition-colors"
-                    >
-                      <Trash2 size={12} />
-                    </button>
-                  </div>
-                </div>
-              ))}
-            </div>
-          </div>
-
-          <div>
-            <div className="flex items-center justify-between mb-3 px-2">
-              <h2 className="text-[10px] font-bold text-slate-400 uppercase tracking-widest">Labels</h2>
-              <span className="text-[9px] font-semibold uppercase tracking-wider text-slate-400">Filters</span>
-            </div>
-            <div className="space-y-1">
-              <SidebarItem
-                onClick={() => setActiveLabelFilter(null)}
-                active={activeLabelFilter === null}
-                icon={<Tag size={16} className={activeLabelFilter === null ? "text-indigo-600" : "text-slate-400"} />}
-                label="All Labels"
-              />
-              {labels.map(label => (
-                <SidebarItem
-                  key={label.id}
-                  onClick={() => setActiveLabelFilter(label.id)}
-                  active={activeLabelFilter === label.id}
-                  icon={<span className={cn("h-3 w-3 shrink-0 rounded-full ring-1 ring-black/10", label.color)} aria-hidden="true" />}
-                  label={label.name}
-                />
-              ))}
-            </div>
-          </div>
-        </div>
-
-        <div className="p-4 border-t border-border">
-          <button 
-            onClick={() => setIsSettingsOpen(!isSettingsOpen)}
-            className="w-full flex items-center justify-between p-4 bg-sidebar rounded-2xl hover:bg-sidebar/80 transition-colors border border-border"
-          >
-            <div className="flex items-center gap-3">
-              <div className="w-8 h-8 rounded-full bg-accent/10 flex items-center justify-center text-accent">
-                <Settings size={16} />
-              </div>
-              <div className="text-left">
-                <p className="text-xs font-bold text-text">Settings</p>
-                <p className="text-[10px] text-text-muted">Local Storage Only</p>
-              </div>
-            </div>
-            {isSettingsOpen ? <ChevronDown size={14} className="text-text-muted" /> : <ChevronRight size={14} className="text-text-muted" />}
-          </button>
-          {isSettingsOpen && (
-            <div className="space-y-2 mt-2 p-2">
-              <div className="rounded-xl border border-border bg-card p-3">
-                <div className="flex items-start gap-2">
-                  <ShieldCheck size={15} className={cn(
-                    "mt-0.5 shrink-0",
-                    storageAvailable === false ? "text-rose-500" : storagePersistence === 'persistent' ? "text-emerald-500" : "text-amber-500"
-                  )} />
-                  <div className="min-w-0">
-                    <p className="text-[11px] font-bold text-text">
-                      {storageAvailable === false
-                        ? 'Storage blocked'
-                        : storagePersistence === 'persistent'
-                          ? 'Local data protected'
-                          : 'Browser-local data'}
-                    </p>
-                    <p className="mt-1 break-words text-[9px] leading-relaxed text-text-muted">
-                      {storageAvailable === false
-                        ? 'This browser is blocking local storage. Changes may be lost; allow site data in browser settings.'
-                        : storagePersistence === 'persistent'
-                          ? 'The browser will retain this origin’s data unless you explicitly clear it.'
-                          : 'Data stays in this browser profile and may be cleared by browser privacy or storage policies.'}
-                    </p>
-                    {storageAvailable && (storagePersistence === 'available' || storagePersistence === 'denied') && (
-                      <button
-                        type="button"
-                        onClick={requestPersistentStorage}
-                        className="mt-2 w-full rounded-lg bg-accent px-2 py-1.5 text-[10px] font-bold text-white transition-opacity hover:opacity-90"
-                      >
-                        Protect local data
-                      </button>
-                    )}
-                    {storagePersistence === 'denied' && (
-                      <p className="mt-1 text-[9px] leading-relaxed text-amber-600">The browser did not grant persistent storage. Export regular backups.</p>
-                    )}
-                    {storagePersistence === 'unsupported' && storageAvailable && (
-                      <p className="mt-1 text-[9px] leading-relaxed text-text-muted">Persistent-storage requests are not supported here. Export regular backups.</p>
-                    )}
-                  </div>
-                </div>
-              </div>
-              <button 
-                onClick={exportData}
-                className="w-full flex items-center gap-2 px-3 py-2 bg-card border border-border rounded-xl text-xs font-bold text-text hover:bg-border/50 transition-colors"
-              >
-                <Download size={14} />
-                <span>Export Data</span>
-              </button>
-              <button 
-                onClick={() => fileInputRef.current?.click()}
-                className="w-full flex items-center gap-2 px-3 py-2 bg-card border border-border rounded-xl text-xs font-bold text-text hover:bg-border/50 transition-colors"
-              >
-                <Upload size={14} />
-                <span>Import Data</span>
-              </button>
-              <button 
-                onClick={() => setIsJsonGuideOpen(true)}
-                className="w-full flex items-center gap-2 px-3 py-2 bg-card border border-border rounded-xl text-xs font-bold text-text hover:bg-border/50 transition-colors"
-              >
-                <FileJson size={14} />
-                <span>JSON Guide</span>
-              </button>
-              <button 
-                onClick={() => setIsAboutModalOpen(true)}
-                className="w-full flex items-center gap-2 px-3 py-2 bg-card border border-border rounded-xl text-xs font-bold text-text hover:bg-border/50 transition-colors"
-              >
-                <Info size={14} />
-                <span>About</span>
-              </button>
-              <div className="pt-2">
-                <p className="text-[10px] font-bold text-text-muted uppercase tracking-wider mb-2">Themes</p>
-                <ThemePicker />
-              </div>
-              <input 
-                type="file" 
-                accept=".json" 
-                ref={fileInputRef} 
-                onChange={handleImportFile} 
-                className="hidden" 
-              />
-            </div>
-          )}
-        </div>
-      </aside>
+      {/* Minibar Navigation */}
+      <MinibarNav
+        activeBoard={activeBoard}
+        setActiveBoard={setActiveBoard}
+        projects={projects}
+        activeProjectId={activeProjectId}
+        setActiveProjectId={setActiveProjectId}
+        openCreateProjectModal={openCreateProjectModal}
+        openEditProjectModal={openEditProjectModal}
+        deleteProject={deleteProject}
+        sprints={sprints}
+        activeSprintId={activeSprintId}
+        setActiveSprintId={setActiveSprintId}
+        openCreateSprintModal={openCreateSprintModal}
+        openEditSprintModal={openEditSprintModal}
+        updateSprintStatus={updateSprintStatus}
+        deleteSprint={deleteSprint}
+        epics={epics}
+        activeEpicId={activeEpicId}
+        setActiveEpicId={setActiveEpicId}
+        openCreateEpicModal={openCreateEpicModal}
+        openEditEpicModal={openEditEpicModal}
+        updateEpicStatus={updateEpicStatus}
+        deleteEpic={deleteEpic}
+        goals={goals}
+        labels={labels}
+        activeLabelFilter={activeLabelFilter}
+        setActiveLabelFilter={setActiveLabelFilter}
+        isFocusMode={isFocusMode}
+        setIsFocusMode={setIsFocusMode}
+        isStatsMode={isStatsMode}
+        setIsStatsMode={setIsStatsMode}
+        showArchived={showArchived}
+        setShowArchived={setShowArchived}
+        folders={folders}
+        onCreateFolder={handleCreateFolder}
+        onRenameFolder={handleRenameFolder}
+        onDeleteFolder={handleDeleteFolder}
+        onToggleFolderCollapse={handleToggleFolderCollapse}
+        onMoveProjectToFolder={handleMoveProjectToFolder}
+        onMoveSprintToFolder={handleMoveSprintToFolder}
+        onMoveEpicToFolder={handleMoveEpicToFolder}
+        onMoveLabelToFolder={handleMoveLabelToFolder}
+        onCreateLabel={handleCreateLabelWithFolder}
+        onDeleteLabel={(id) => {
+          setLabels(prev => prev.filter(l => l.id !== id));
+          setLabelIds(prev => prev.filter(lId => lId !== id));
+          setGoals(prev => prev.map(g => ({
+            ...g,
+            labelIds: g.labelIds?.filter(lId => lId !== id)
+          })));
+          if (activeLabelFilter === id) {
+            setActiveLabelFilter(null);
+          }
+        }}
+        storageAvailable={storageAvailable}
+        storagePersistence={storagePersistence}
+        requestPersistentStorage={requestPersistentStorage}
+        exportData={exportData}
+        handleImportFile={handleImportFile}
+        fileInputRef={fileInputRef}
+        setIsJsonGuideOpen={setIsJsonGuideOpen}
+        setIsAboutModalOpen={setIsAboutModalOpen}
+      />
 
       {/* Main Content Area */}
       <div className="flex-1 flex flex-col min-w-0">
         {isJsonGuideOpen ? (
           <JsonGuide onClose={() => setIsJsonGuideOpen(false)} />
+        ) : isStatsMode ? (
+          <StatsDashboard
+            goals={goals}
+            projects={projects}
+            sprints={sprints}
+            epics={epics}
+            workflowColumns={workflowColumns}
+            activeBoard={activeBoard}
+            onExit={() => setIsStatsMode(false)}
+            onSelectGoal={(goal) => openGoalDetails(goal)}
+          />
         ) : isFocusMode ? (
-          <div className="flex-1 flex flex-col bg-slate-50 overflow-y-auto">
+          <div className="flex-1 flex flex-col bg-bg overflow-y-auto">
             <header className="px-8 py-12 flex flex-col items-center text-center space-y-4">
-              <div className="w-16 h-16 bg-amber-100 rounded-3xl flex items-center justify-center text-amber-600 shadow-xl shadow-amber-100/50">
+              <div className="w-16 h-16 bg-amber-500/15 rounded-3xl flex items-center justify-center text-amber-500 shadow-xl shadow-amber-500/10 border border-amber-500/20">
                 <Zap size={32} className="fill-amber-500" />
               </div>
               <div>
-                <h2 className="text-3xl font-black text-slate-900 tracking-tight">Focus Mode</h2>
-                <p className="text-slate-500 font-medium">Concentrate on what matters right now.</p>
+                <h2 className="text-3xl font-black text-text-primary tracking-tight">Focus Mode</h2>
+                <p className="text-text-muted font-medium">Concentrate on what matters right now.</p>
               </div>
               <button 
                 onClick={() => setIsFocusMode(false)}
-                className="px-6 py-2 bg-white border border-slate-200 rounded-full text-xs font-bold text-slate-600 hover:bg-slate-50 transition-all shadow-sm"
+                className="px-6 py-2 bg-card border border-border rounded-full text-xs font-bold text-text-secondary hover:bg-column hover:text-text-primary transition-all shadow-sm cursor-pointer"
               >
                 Exit Focus Mode
               </button>
@@ -2424,12 +2740,12 @@ export default function App() {
 
             <main className="px-8 pb-20 max-w-4xl mx-auto w-full space-y-12">
               {focusGoals.length === 0 ? (
-                <div className="bg-white rounded-3xl p-12 text-center border border-slate-200 shadow-sm">
-                  <div className="w-12 h-12 bg-slate-50 rounded-2xl flex items-center justify-center text-slate-300 mx-auto mb-4">
+                <div className="bg-card rounded-3xl p-12 text-center border border-border shadow-sm">
+                  <div className="w-12 h-12 bg-column rounded-2xl flex items-center justify-center text-text-muted mx-auto mb-4 border border-border/40">
                     <Target size={24} />
                   </div>
-                  <h3 className="text-lg font-bold text-slate-900 mb-1">Nothing planned for today</h3>
-                  <p className="text-sm text-slate-500 max-w-xs mx-auto">
+                  <h3 className="text-lg font-bold text-text-primary mb-1">Nothing planned for today</h3>
+                  <p className="text-sm text-text-muted max-w-xs mx-auto">
                     Go back to your board and mark some goals as "Planned for Today" to see them here.
                   </p>
                 </div>
@@ -2437,18 +2753,18 @@ export default function App() {
                 <div className="grid grid-cols-1 gap-6">
                   {focusGoals.map(goal => (
                     <div key={goal.id} className="group relative">
-                      <StaticGoalCard goal={goal} labels={labels} />
+                      <StaticGoalCard goal={goal} allGoals={goals} labels={labels} epics={epics} onEdit={openGoalDetails} />
                       <div className="absolute top-4 right-4 flex gap-2 opacity-0 group-hover:opacity-100 transition-opacity">
                         <button
-                          onClick={() => openEditModal(goal)}
-                          className="p-2 bg-white rounded-xl shadow-lg border border-slate-100 text-slate-400 hover:text-indigo-600 transition-colors"
+                          onClick={() => openGoalDetails(goal)}
+                          className="p-2 bg-card rounded-xl shadow-lg border border-border text-text-muted hover:text-accent transition-colors cursor-pointer"
                           title="Edit Goal"
                         >
                           <Edit2 size={16} />
                         </button>
                         <button
                           onClick={() => updateGoalLifecycle(goal.id, 'completed')}
-                          className="p-2 bg-white rounded-xl shadow-lg border border-slate-100 text-slate-400 hover:text-emerald-600 transition-colors"
+                          className="p-2 bg-card rounded-xl shadow-lg border border-border text-text-muted hover:text-emerald-500 transition-colors cursor-pointer"
                           title="Mark Complete"
                         >
                           <Check size={16} />
@@ -2463,12 +2779,12 @@ export default function App() {
         ) : (
           <>
             {/* Header */}
-        <header className="bg-white border-b border-slate-200 px-8 py-4 flex flex-wrap items-center justify-between gap-4 sticky top-0 z-10">
+        <header className="bg-card border-b border-border px-8 py-4 flex flex-wrap items-center justify-between gap-4 sticky top-0 z-10">
           <div className="flex items-center gap-4">
-            <div className="h-8 w-[1px] bg-slate-200 hidden md:block" />
+            <div className="h-8 w-[1px] bg-border hidden md:block" />
             <div>
-              <h2 className="text-xl font-bold text-slate-900">{activeProject?.name || 'Loading...'}</h2>
-              <div className="flex items-center gap-2 text-[10px] font-bold text-slate-400 uppercase tracking-widest">
+              <h2 className="text-xl font-bold text-text-primary">{activeProject?.name || 'Loading...'}</h2>
+              <div className="flex items-center gap-2 text-[10px] font-bold text-text-muted uppercase tracking-widest">
                 <LayoutGrid size={10} />
                 <span>Kanban Board</span>
               </div>
@@ -2476,19 +2792,11 @@ export default function App() {
           </div>
 
           <div className="flex flex-1 flex-wrap items-center justify-end gap-3">
-            <button
-              type="button"
-              onClick={() => openNewGoalModal()}
-              className="order-1 inline-flex min-h-10 items-center justify-center gap-2 rounded-xl bg-accent px-4 py-2 text-sm font-bold text-white shadow-md shadow-indigo-200/60 transition-all hover:-translate-y-0.5 hover:opacity-90 hover:shadow-lg focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent focus-visible:ring-offset-2"
-            >
-              <Plus size={17} aria-hidden="true" />
-              New goal
-            </button>
-            <div className="relative order-2 w-full sm:order-1 sm:w-auto">
+            <div className="relative w-full sm:order-1 sm:w-auto">
               <Search
                 size={16}
                 aria-hidden="true"
-                className="absolute left-3 top-1/2 -translate-y-1/2 text-slate-400 pointer-events-none"
+                className="absolute left-3 top-1/2 -translate-y-1/2 text-text-muted pointer-events-none"
               />
               <input
                 type="search"
@@ -2496,14 +2804,14 @@ export default function App() {
                 onChange={(event) => setSearchQuery(event.target.value)}
                 placeholder="Search goals..."
                 aria-label="Search goals by title, description, or label"
-                className="w-full sm:w-48 lg:w-64 rounded-xl border border-slate-200 bg-slate-50 py-2 pl-9 pr-9 text-sm text-slate-900 placeholder:text-slate-400 outline-none transition-all sm:focus:w-64 lg:focus:w-72 focus:border-indigo-400 focus:bg-white focus:ring-2 focus:ring-indigo-500/10"
+                className="w-full sm:w-48 lg:w-64 rounded-xl border border-border bg-column py-2 pl-9 pr-9 text-sm text-text-primary placeholder:text-text-muted outline-none transition-all sm:focus:w-64 lg:focus:w-72 focus:border-accent focus:bg-card focus:ring-2 focus:ring-accent/20"
               />
               {searchQuery && (
                 <button
                   type="button"
                   onClick={() => setSearchQuery('')}
                   aria-label="Clear goal search"
-                  className="absolute right-2 top-1/2 -translate-y-1/2 rounded-md p-1 text-slate-400 transition-colors hover:bg-slate-200 hover:text-slate-600"
+                  className="absolute right-2 top-1/2 -translate-y-1/2 rounded-md p-1 text-text-muted transition-colors hover:bg-column hover:text-text-primary cursor-pointer"
                 >
                   <X size={14} />
                 </button>
@@ -2516,28 +2824,28 @@ export default function App() {
         {/* Sprint Dashboard */}
         {activeSprint && (
           <div className="px-8 pt-8">
-            <div className="bg-white rounded-3xl p-6 shadow-sm border border-slate-200">
+            <div className="bg-card rounded-3xl p-6 shadow-sm border border-border">
               <div className="flex flex-col md:flex-row md:items-center justify-between gap-6">
                 <div className="space-y-1">
                   <div className="flex items-center gap-2">
-                    <Zap size={16} className="text-indigo-600" />
-                    <h3 className="text-lg font-bold text-slate-900">{activeSprint.name}</h3>
+                    <Zap size={16} className="text-indigo-500" />
+                    <h3 className="text-lg font-bold text-text-primary">{activeSprint.name}</h3>
                     <span className={cn(
                       "px-2 py-0.5 rounded-full text-[10px] font-bold uppercase tracking-wider border",
-                      activeSprint.status === 'active' ? "bg-emerald-50 text-emerald-600 border-emerald-100" :
-                      activeSprint.status === 'planned' ? "bg-indigo-50 text-indigo-600 border-indigo-100" :
-                      "bg-slate-50 text-slate-600 border-slate-100"
+                      activeSprint.status === 'active' ? "bg-emerald-500/15 text-emerald-400 border-emerald-500/30" :
+                      activeSprint.status === 'planned' ? "bg-indigo-500/15 text-indigo-400 border-indigo-500/30" :
+                      "bg-column text-text-muted border-border"
                     )}>
                       {activeSprint.status}
                     </span>
                   </div>
-                  <div className="flex items-center gap-4 text-xs text-slate-500 font-medium">
+                  <div className="flex items-center gap-4 text-xs text-text-muted font-medium">
                     <div className="flex items-center gap-1.5">
-                      <Folder size={14} className="text-slate-400" aria-hidden="true" />
+                      <Folder size={14} className="text-text-muted" aria-hidden="true" />
                       <span>{activeSprintProject?.name ?? 'Unknown project'}</span>
                     </div>
                     <div className="flex items-center gap-1.5">
-                      <Calendar size={14} className="text-slate-400" />
+                      <Calendar size={14} className="text-text-muted" />
                       <span>{new Date(activeSprint.startDate).toLocaleDateString()} - {new Date(activeSprint.endDate).toLocaleDateString()}</span>
                     </div>
                   </div>
@@ -2545,26 +2853,52 @@ export default function App() {
 
                 <div className="flex-1 max-w-md">
                   <div className="flex items-center justify-between mb-2">
-                    <span className="text-xs font-bold text-slate-400 uppercase tracking-wider">Sprint Progress</span>
-                    <span className="text-xs font-bold text-slate-900">{completedGoalsCount} / {totalGoalsCount} goals completed</span>
+                    <span className="text-xs font-bold text-text-muted uppercase tracking-wider">Sprint Progress</span>
+                    <span className="text-xs font-bold text-text-primary">{completedGoalsCount} / {totalGoalsCount} goals completed</span>
                   </div>
-                  <div className="h-2 bg-slate-100 rounded-full overflow-hidden">
+                  <div className="h-2 bg-column rounded-full overflow-hidden border border-border/30">
                     <motion.div 
                       initial={{ width: 0 }}
                       animate={{ width: `${progressPercentage}%` }}
-                      className="h-full bg-indigo-600 rounded-full"
+                      className="h-full bg-indigo-500 rounded-full"
                     />
                   </div>
                 </div>
 
                 <div className="flex gap-8">
                   <div className="text-center">
-                    <p className="text-2xl font-bold text-slate-900">{completedGoalsCount}</p>
-                    <p className="text-[10px] font-bold text-slate-400 uppercase tracking-widest">Completed</p>
+                    <p className="text-2xl font-bold text-text-primary">{completedGoalsCount}</p>
+                    <p className="text-[10px] font-bold text-text-muted uppercase tracking-widest">Completed</p>
                   </div>
                   <div className="text-center">
-                    <p className="text-2xl font-bold text-slate-900">{remainingGoalsCount}</p>
-                    <p className="text-[10px] font-bold text-slate-400 uppercase tracking-widest">Remaining</p>
+                    <p className="text-2xl font-bold text-text-primary">{remainingGoalsCount}</p>
+                    <p className="text-[10px] font-bold text-text-muted uppercase tracking-widest">Remaining</p>
+                  </div>
+                </div>
+              </div>
+            </div>
+          </div>
+        )}
+
+        {activeEpic && (
+          <div className="px-4 pt-6 sm:px-8 sm:pt-8">
+            <div className="rounded-3xl border border-border bg-card p-6 shadow-sm">
+              <div className="flex flex-col gap-6 md:flex-row md:items-center md:justify-between">
+                <div className="min-w-0">
+                  <div className="flex flex-wrap items-center gap-2">
+                    <Layers size={18} className="text-violet-500" aria-hidden="true" />
+                    <h3 className="truncate text-lg font-bold text-text-primary">{activeEpic.name}</h3>
+                    <span className="rounded-full border border-violet-500/30 bg-violet-500/15 px-2 py-0.5 text-[10px] font-bold uppercase tracking-wider text-violet-400">{activeEpic.status}</span>
+                  </div>
+                  {activeEpic.description && <p className="mt-2 max-w-2xl text-sm text-text-secondary">{activeEpic.description}</p>}
+                </div>
+                <div className="w-full max-w-md">
+                  <div className="mb-2 flex items-center justify-between gap-4 text-xs font-bold">
+                    <span className="uppercase tracking-wider text-text-muted">Epic progress</span>
+                    <span className="text-text-primary">{activeEpicCompletedGoals} / {activeEpicGoals.length} goals completed</span>
+                  </div>
+                  <div className="h-2 overflow-hidden rounded-full bg-column border border-border/30" role="progressbar" aria-label={`${activeEpic.name} progress`} aria-valuenow={activeEpicProgress} aria-valuemin={0} aria-valuemax={100}>
+                    <motion.div initial={{ width: 0 }} animate={{ width: `${activeEpicProgress}%` }} className="h-full rounded-full bg-violet-500" />
                   </div>
                 </div>
               </div>
@@ -2600,16 +2934,19 @@ export default function App() {
                     id={col.id}
                     title={col.title}
                     goals={filteredGoals.filter(g => g.status === col.id)}
+                    allGoals={goals}
                     labels={labels}
                     sprints={sprints}
+                    epics={epics}
                     onDelete={deleteGoal}
                     onAdd={openNewGoalModal}
-                    onEdit={openEditModal}
+                    onEdit={openGoalDetails}
                     onToggleChecklist={toggleChecklistItem}
                     onUpdateNumeric={updateNumericProgress}
                     onUpdateLifecycle={updateGoalLifecycle}
                     onTogglePlannedForToday={togglePlannedForToday}
                     onAssignSprint={assignGoalToSprint}
+                    onAssignEpic={assignGoalToEpic}
                   />
                 ))}
               </div>
@@ -2623,12 +2960,87 @@ export default function App() {
                   },
                 }),
               }}>
-                {activeGoal ? <StaticGoalCard goal={activeGoal} labels={labels} /> : null}
+                {activeGoal ? <StaticGoalCard goal={activeGoal} allGoals={goals} labels={labels} epics={epics} onEdit={openGoalDetails} /> : null}
               </DragOverlay>
             </DndContext>
           </div>
         </main>
           </>
+        )}
+
+        {/* Floating Quick Action Bar in Bottom-Right Corner */}
+        {!isJsonGuideOpen && (
+          <motion.div
+            initial={{ opacity: 0, y: 20, scale: 0.95 }}
+            animate={{ opacity: 1, y: 0, scale: 1 }}
+            transition={{ duration: 0.25, ease: 'easeOut' }}
+            style={{
+              backgroundColor: 'color-mix(in srgb, var(--card) 85%, transparent)',
+              borderColor: 'var(--border)',
+            }}
+            className="fixed bottom-6 right-6 z-40 flex items-center gap-2 rounded-2xl border p-2 shadow-2xl backdrop-blur-md"
+            role="region"
+            aria-label="Quick actions"
+          >
+            <button
+              type="button"
+              onClick={openCreateSprintModal}
+              style={{
+                backgroundColor: 'var(--sprint-bg)',
+                color: 'var(--sprint-text)',
+                borderColor: 'var(--sprint-border)',
+              }}
+              className="btn btn-sm border font-bold gap-1.5 shadow-xs transition-all hover:-translate-y-0.5 hover:brightness-105 active:translate-y-0 cursor-pointer"
+              aria-label={`Add sprint for ${activeProject?.name ?? 'current project'}`}
+              title="Create a new sprint"
+            >
+              <Icon name="bolt" size={15} style={{ color: 'var(--sprint-text)' }} />
+              <span className="hidden sm:inline">Add Sprint</span>
+              <span className="sm:hidden">Sprint</span>
+            </button>
+            <button
+              type="button"
+              onClick={openCreateEpicModal}
+              style={{
+                backgroundColor: 'var(--epic-bg)',
+                color: 'var(--epic-text)',
+                borderColor: 'var(--epic-border)',
+              }}
+              className="btn btn-sm border font-bold gap-1.5 shadow-xs transition-all hover:-translate-y-0.5 hover:brightness-105 active:translate-y-0 cursor-pointer"
+              aria-label={`Add epic for ${activeProject?.name ?? 'current project'}`}
+              title="Create a new epic"
+            >
+              <Icon name="diamond" size={15} style={{ color: 'var(--epic-text)' }} />
+              <span className="hidden sm:inline">Add Epic</span>
+              <span className="sm:hidden">Epic</span>
+            </button>
+            <SparkleWrapper 
+              isSparkling={hasEmptyColumn}
+              tooltip={hasEmptyColumn ? "Some stages have no goals — click to create a new goal!" : "Create a new goal"}
+            >
+              <button
+                type="button"
+                onClick={() => openNewGoalModal()}
+                style={{
+                  backgroundColor: 'var(--accent)',
+                  color: 'var(--accent-text)',
+                }}
+                className={cn(
+                  "btn btn-sm sm:btn-md font-bold gap-1.5 border-none shadow-md shadow-accent/25 transition-all hover:-translate-y-0.5 hover:brightness-110 active:translate-y-0 cursor-pointer relative",
+                  hasEmptyColumn && "ring-2 ring-amber-300/80 shadow-lg shadow-indigo-500/30"
+                )}
+                aria-label={hasEmptyColumn ? "Create a new goal (some stages are empty)" : "Create a new goal"}
+                title={hasEmptyColumn ? "Some stages have no goals — click to create a new goal!" : "Create a new goal"}
+              >
+                {hasEmptyColumn ? (
+                  <Sparkles size={17} className="text-amber-300 fill-amber-300 animate-pulse shrink-0" />
+                ) : (
+                  <Icon name="add" size={18} className="transition-transform duration-200 group-hover:rotate-90 shrink-0" />
+                )}
+                <span>New Goal</span>
+              </button>
+            </SparkleWrapper>
+          </motion.div>
         )}
       </div>
 
@@ -2647,7 +3059,7 @@ export default function App() {
               initial={{ opacity: 0, scale: 0.95, y: 20 }}
               animate={{ opacity: 1, scale: 1, y: 0 }}
               exit={{ opacity: 0, scale: 0.95, y: 20 }}
-              className="relative w-full max-w-md bg-white rounded-3xl shadow-2xl overflow-hidden"
+              className="modal-box relative w-full max-w-md bg-white rounded-3xl shadow-2xl p-0 overflow-hidden"
             >
               <div className="p-8">
                 <div className="flex items-center justify-between mb-8">
@@ -2657,7 +3069,7 @@ export default function App() {
                   </div>
                   <button 
                     onClick={closeSprintModal}
-                    className="p-2 hover:bg-slate-100 rounded-full transition-colors text-slate-400"
+                    className="btn btn-sm btn-circle btn-ghost text-slate-400 hover:text-slate-600"
                     aria-label="Close sprint form"
                   >
                     <X size={20} />
@@ -2677,7 +3089,7 @@ export default function App() {
                         setSprintProjectId(event.target.value);
                         setSprintFormError(null);
                       }}
-                      className="w-full rounded-2xl border border-slate-200 bg-slate-50 px-4 py-3 text-sm font-semibold text-slate-900 outline-none transition-all focus:border-indigo-500 focus:ring-2 focus:ring-indigo-500/20"
+                      className="select select-bordered w-full rounded-2xl font-semibold text-slate-900 bg-slate-50"
                     >
                       <option value="" disabled>Choose a project</option>
                       {projects.map(project => (
@@ -2756,19 +3168,71 @@ export default function App() {
                     <button
                       type="button"
                       onClick={closeSprintModal}
-                      className="flex-1 px-6 py-3 rounded-2xl text-sm font-bold text-slate-600 hover:bg-slate-50 transition-all"
+                      className="btn btn-ghost flex-1 rounded-2xl text-sm font-bold text-slate-600"
                     >
                       Cancel
                     </button>
                     <button
                       type="submit"
-                      className="flex-2 px-8 py-3 bg-indigo-600 text-white rounded-2xl text-sm font-bold hover:bg-indigo-700 shadow-lg shadow-indigo-200 transition-all"
+                      style={{
+                        backgroundColor: 'var(--accent)',
+                        color: 'var(--accent-text)',
+                      }}
+                      className="btn flex-2 rounded-2xl text-sm font-bold border-none shadow-lg shadow-accent/25 transition-all hover:brightness-110"
                     >
                       {editingSprintId ? 'Save Sprint' : 'Create Sprint'}
                     </button>
                   </div>
                 </form>
               </div>
+            </motion.div>
+          </div>
+        )}
+      </AnimatePresence>
+
+      {/* Epic Modal */}
+      <AnimatePresence>
+        {isEpicModalOpen && (
+          <div className="fixed inset-0 z-[70] flex items-center justify-center p-4">
+            <motion.div initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }} onClick={closeEpicModal} className="absolute inset-0 bg-slate-900/40 backdrop-blur-sm" />
+            <motion.div initial={{ opacity: 0, scale: 0.95, y: 20 }} animate={{ opacity: 1, scale: 1, y: 0 }} exit={{ opacity: 0, scale: 0.95, y: 20 }} role="dialog" aria-modal="true" aria-labelledby="epic-modal-title" className="modal-box relative w-full max-w-lg rounded-3xl bg-white p-8 text-slate-900 shadow-2xl">
+              <div className="mb-7 flex items-start justify-between gap-4">
+                <div>
+                  <h2 id="epic-modal-title" className="text-2xl font-bold">{editingEpicId ? 'Edit Epic' : 'New Epic'}</h2>
+                  <p className="mt-1 text-sm text-slate-500">Group related goals across stages and sprints in {activeProject?.name}.</p>
+                </div>
+                <button type="button" onClick={closeEpicModal} className="btn btn-sm btn-circle btn-ghost text-slate-400 hover:text-slate-600" aria-label="Close epic form"><X size={20} /></button>
+              </div>
+              <form onSubmit={saveEpic} className="space-y-5">
+                <div>
+                  <label htmlFor="epic-name" className="mb-2 block text-xs font-bold uppercase tracking-wider text-slate-600">Epic name</label>
+                  <input id="epic-name" autoFocus required value={epicName} onChange={(event) => { setEpicName(event.target.value); setEpicFormError(null); }} placeholder="e.g. Customer onboarding" className="input input-bordered w-full rounded-2xl font-medium" />
+                </div>
+                <div>
+                  <label htmlFor="epic-description" className="mb-2 block text-xs font-bold uppercase tracking-wider text-slate-600">Description</label>
+                  <textarea id="epic-description" value={epicDescription} onChange={(event) => setEpicDescription(event.target.value)} rows={3} placeholder="What outcome does this epic deliver?" className="textarea textarea-bordered w-full rounded-2xl text-sm font-medium" />
+                </div>
+                <div>
+                  <label htmlFor="epic-status" className="mb-2 block text-xs font-bold uppercase tracking-wider text-slate-600">Status</label>
+                  <select id="epic-status" value={epicStatus} onChange={(event) => setEpicStatus(event.target.value as EpicStatus)} className="select select-bordered w-full rounded-2xl font-semibold bg-slate-50">
+                    <option value="planned">Planned</option><option value="active">Active</option><option value="completed">Completed</option><option value="archived">Archived</option>
+                  </select>
+                </div>
+                {epicFormError && <p role="alert" className="text-sm font-semibold text-rose-600">{epicFormError}</p>}
+                <div className="flex gap-3 pt-2">
+                  <button type="button" onClick={closeEpicModal} className="btn btn-ghost flex-1 rounded-xl text-sm font-bold text-slate-600">Cancel</button>
+                  <button
+                    type="submit"
+                    style={{
+                      backgroundColor: 'var(--accent)',
+                      color: 'var(--accent-text)',
+                    }}
+                    className="btn flex-1 rounded-xl text-sm font-bold border-none shadow-lg shadow-accent/25 transition-all hover:brightness-110"
+                  >
+                    {editingEpicId ? 'Save Epic' : 'Create Epic'}
+                  </button>
+                </div>
+              </form>
             </motion.div>
           </div>
         )}
@@ -2896,7 +3360,11 @@ export default function App() {
                   </button>
                   <button
                     type="submit"
-                    className="flex-1 px-4 py-3 rounded-xl font-semibold bg-indigo-600 text-white hover:bg-indigo-700 shadow-lg shadow-indigo-200 transition-all"
+                    style={{
+                      backgroundColor: 'var(--accent)',
+                      color: 'var(--accent-text)',
+                    }}
+                    className="btn flex-1 rounded-xl font-semibold border-none shadow-lg shadow-accent/25 transition-all hover:brightness-110"
                   >
                     {editingProjectId ? 'Save Project' : 'Create Project'}
                   </button>
@@ -3039,7 +3507,7 @@ export default function App() {
               initial={{ opacity: 0, scale: 0.95, y: 20 }}
               animate={{ opacity: 1, scale: 1, y: 0 }}
               exit={{ opacity: 0, scale: 0.95, y: 20 }}
-              className="relative bg-white rounded-3xl shadow-2xl w-full max-w-xl p-8 my-8 text-slate-900"
+              className="modal-box relative bg-white rounded-3xl shadow-2xl w-full max-w-xl p-8 my-8 text-slate-900"
             >
               <div className="flex items-center justify-between mb-6">
                 <h2 className="text-2xl font-bold text-slate-900">
@@ -3047,7 +3515,7 @@ export default function App() {
                 </h2>
                 <button 
                   onClick={() => setIsModalOpen(false)}
-                  className="p-2 hover:bg-slate-100 rounded-full text-slate-500 transition-colors"
+                  className="btn btn-sm btn-circle btn-ghost text-slate-400 hover:text-slate-600"
                 >
                   <X size={20} />
                 </button>
@@ -3064,17 +3532,16 @@ export default function App() {
                       value={title}
                       onChange={(e) => setTitle(e.target.value)}
                       placeholder="What do you want to achieve?"
-                      className="w-full px-4 py-3 bg-white text-slate-900 placeholder:text-slate-400 rounded-xl border border-slate-200 focus:outline-none focus:ring-2 focus:ring-indigo-500/20 focus:border-indigo-500 transition-all font-medium"
+                      className="input input-bordered w-full rounded-2xl font-medium"
                     />
                   </div>
                   <div>
-                    <label className="block text-xs font-bold text-slate-600 uppercase tracking-wider mb-1.5">Description</label>
-                    <textarea
+                    <label className="block text-xs font-bold text-slate-600 uppercase tracking-wider mb-1.5">Description (Markdown Supported)</label>
+                    <MarkdownEditor
                       value={description}
-                      onChange={(e) => setDescription(e.target.value)}
-                      placeholder="Add some context or details..."
-                      rows={2}
-                      className="w-full px-4 py-3 bg-white text-slate-900 placeholder:text-slate-400 rounded-xl border border-slate-200 focus:outline-none focus:ring-2 focus:ring-indigo-500/20 focus:border-indigo-500 transition-all resize-none text-sm font-medium"
+                      onChange={setDescription}
+                      placeholder="Add some context, checklist, or details with Markdown..."
+                      minRows={2}
                     />
                   </div>
                 </div>
@@ -3130,6 +3597,24 @@ export default function App() {
                       </option>
                     ))}
                   </select>
+                </div>
+
+                <div>
+                  <label htmlFor="goal-epic" className="mb-2 block text-xs font-bold uppercase tracking-wider text-slate-600">
+                    Epic (Optional)
+                  </label>
+                  <select
+                    id="goal-epic"
+                    value={epicId}
+                    onChange={(event) => setEpicId(event.target.value)}
+                    className="w-full rounded-lg border border-slate-200 bg-slate-50 px-3 py-2 text-sm font-medium text-slate-900 transition-all focus:border-violet-500 focus:outline-none focus:ring-2 focus:ring-violet-500/20"
+                  >
+                    <option value="">No Epic</option>
+                    {epics.filter(epic => epic.projectId === activeProjectId && (epic.status !== 'archived' || epic.id === epicId)).map(epic => (
+                      <option key={epic.id} value={epic.id}>{epic.name} ({epic.status})</option>
+                    ))}
+                  </select>
+                  <p className="mt-1 text-[10px] text-slate-500">Epics can group goals across workflow stages and sprints.</p>
                 </div>
 
                 {/* Sprint Selection */}
@@ -3377,13 +3862,17 @@ export default function App() {
                   <button
                     type="button"
                     onClick={() => setIsModalOpen(false)}
-                    className="flex-1 px-4 py-3 rounded-xl font-bold text-slate-700 hover:bg-slate-100 transition-colors"
+                    className="btn btn-ghost flex-1 rounded-xl font-bold text-slate-700"
                   >
                     Cancel
                   </button>
                   <button
                     type="submit"
-                    className="flex-1 px-4 py-3 rounded-xl font-bold bg-indigo-600 text-white hover:bg-indigo-700 shadow-lg shadow-indigo-200 transition-all"
+                    style={{
+                      backgroundColor: 'var(--accent)',
+                      color: 'var(--accent-text)',
+                    }}
+                    className="btn flex-1 rounded-xl font-bold border-none shadow-lg shadow-accent/25 transition-all hover:brightness-110"
                   >
                     {editingGoalId ? 'Save Changes' : 'Create Goal'}
                   </button>
@@ -3391,6 +3880,38 @@ export default function App() {
               </form>
             </motion.div>
           </div>
+        )}
+      </AnimatePresence>
+
+      {/* GitHub-Issue Goal Details Modal */}
+      <AnimatePresence>
+        {selectedGoal && (
+          <GoalDetailModal
+            goal={selectedGoal}
+            allGoals={goals}
+            projects={projects}
+            workflowColumns={workflowColumns}
+            labels={labels}
+            sprints={sprints}
+            epics={epics}
+            onUpdateGoal={(updatedGoal) => {
+              setGoals(prev => prev.map(g => g.id === updatedGoal.id ? updatedGoal : g));
+            }}
+            onDeleteGoal={(id) => {
+              deleteGoal(id);
+              closeGoalDetails();
+            }}
+            onCreateLabel={(name, color) => {
+              const newLabel: Label = {
+                id: Math.random().toString(36).substring(2, 9),
+                name,
+                color,
+              };
+              setLabels(prev => [...prev, newLabel]);
+              return newLabel;
+            }}
+            onClose={closeGoalDetails}
+          />
         )}
       </AnimatePresence>
 
@@ -3455,8 +3976,9 @@ export default function App() {
                       <p>{importSummary.newProjects} new projects will be added</p>
                       <p>{importSummary.newGoals} new goals will be added</p>
                       <p>{importSummary.newSprints} new sprints will be added</p>
+                      <p>{importSummary.newEpics} new epics will be added</p>
                       <p>{importSummary.newLabels} new labels will be added</p>
-                      <p className="text-slate-400 mt-2">{importSummary.skippedProjects + importSummary.skippedGoals + importSummary.skippedSprints + importSummary.skippedLabels} items will be skipped</p>
+                      <p className="text-slate-400 mt-2">{importSummary.skippedProjects + importSummary.skippedGoals + importSummary.skippedSprints + importSummary.skippedEpics + importSummary.skippedLabels} items will be skipped</p>
                     </div>
                   )}
                 </>

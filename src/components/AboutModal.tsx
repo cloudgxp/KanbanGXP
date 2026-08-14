@@ -10,14 +10,14 @@ export function AboutModal({ onClose }: AboutModalProps) {
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center p-4 sm:p-6">
       <div 
-        className="absolute inset-0 bg-slate-900/40 backdrop-blur-sm"
+        className="fixed inset-0 bg-slate-900/40 backdrop-blur-sm"
         onClick={onClose}
       />
       <motion.div 
         initial={{ opacity: 0, scale: 0.95, y: 10 }}
         animate={{ opacity: 1, scale: 1, y: 0 }}
         exit={{ opacity: 0, scale: 0.95, y: 10 }}
-        className="relative w-full max-w-2xl bg-white rounded-3xl shadow-2xl overflow-hidden flex flex-col max-h-[90vh]"
+        className="modal-box relative w-full max-w-2xl bg-white rounded-3xl shadow-2xl p-0 overflow-hidden flex flex-col max-h-[90vh]"
       >
         <header className="px-8 py-6 border-b border-slate-100 flex items-center justify-between bg-slate-50/50 sticky top-0 z-10">
           <div className="flex items-center gap-4">
@@ -25,15 +25,19 @@ export function AboutModal({ onClose }: AboutModalProps) {
               <Info size={24} />
             </div>
             <div>
-              <h2 className="text-2xl font-black text-slate-900 tracking-tight">About KanbanGXP</h2>
+              <div className="flex items-center gap-2">
+                <h2 className="text-2xl font-black text-slate-900 tracking-tight">About KanbanGXP</h2>
+                <span className="badge badge-sm badge-neutral">v1.0</span>
+              </div>
               <p className="text-sm text-slate-500 font-medium">Simple, private, and local-first.</p>
             </div>
           </div>
           <button 
             onClick={onClose}
-            className="p-2 hover:bg-slate-200 rounded-full text-slate-400 transition-colors"
+            className="btn btn-sm btn-circle btn-ghost text-slate-400 hover:text-slate-600"
+            aria-label="Close dialog"
           >
-            <X size={24} />
+            <X size={20} />
           </button>
         </header>
 
@@ -41,18 +45,19 @@ export function AboutModal({ onClose }: AboutModalProps) {
           {/* Origin Story */}
           <section>
             <p className="text-slate-600 leading-relaxed">
-              <strong>KanbanGXP</strong> is designed by <a href="https://github.com/cloudgxp" target="_blank" rel="noopener noreferrer" className="text-indigo-600 hover:underline font-semibold">CloudGXP</a>. 
+              <strong>KanbanGXP</strong> is designed by <a href="https://github.com/cloudgxp" target="_blank" rel="noopener noreferrer" className="link link-primary font-semibold">CloudGXP</a>. 
               It was originally created as a personal project management tool for individual and private use.
             </p>
           </section>
 
           {/* Privacy First */}
-          <section className="bg-emerald-50 rounded-2xl p-6 border border-emerald-100">
+          <section className="card card-border bg-emerald-50/80 p-6 border-emerald-200/80">
             <div className="flex items-center gap-3 mb-4">
-              <div className="p-2 bg-emerald-100 rounded-lg text-emerald-600">
+              <div className="p-2 bg-emerald-100 rounded-xl text-emerald-600">
                 <Shield size={20} />
               </div>
               <h3 className="text-lg font-bold text-emerald-900">100% Private & Local</h3>
+              <span className="badge badge-sm badge-success ml-auto">Verified</span>
             </div>
             <p className="text-emerald-800 text-sm mb-4 leading-relaxed">
               The app is intentionally designed to be simple, private, and local-first. The goal is to give you a project management tool that you fully control.
@@ -77,12 +82,13 @@ export function AboutModal({ onClose }: AboutModalProps) {
           </section>
 
           {/* Free & Open */}
-          <section className="bg-indigo-50 rounded-2xl p-6 border border-indigo-100">
+          <section className="card card-border bg-indigo-50/80 p-6 border-indigo-200/80">
             <div className="flex items-center gap-3 mb-4">
-              <div className="p-2 bg-indigo-100 rounded-lg text-indigo-600">
+              <div className="p-2 bg-indigo-100 rounded-xl text-indigo-600">
                 <Heart size={20} />
               </div>
               <h3 className="text-lg font-bold text-indigo-900">Free & Open</h3>
+              <span className="badge badge-sm badge-primary ml-auto">Open Source</span>
             </div>
             <p className="text-indigo-800 text-sm mb-4 leading-relaxed">
               This project is free and open for anyone to use. We believe in empowering individuals to manage their work without compromising their data. You are welcome to:
@@ -108,10 +114,10 @@ export function AboutModal({ onClose }: AboutModalProps) {
           </section>
         </div>
         
-        <footer className="px-8 py-6 border-t border-slate-100 bg-slate-50 text-center">
+        <footer className="modal-action px-8 py-4 border-t border-slate-100 bg-slate-50 mt-0 flex justify-end">
           <button
             onClick={onClose}
-            className="px-6 py-2.5 bg-slate-900 text-white rounded-xl font-bold hover:bg-slate-800 transition-colors shadow-md"
+            className="btn btn-neutral px-6 rounded-xl font-bold"
           >
             Close
           </button>
