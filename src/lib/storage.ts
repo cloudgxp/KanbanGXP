@@ -2,10 +2,13 @@ export const STORAGE_KEYS = {
   projects: 'kanbangxp_projects',
   goals: 'kanbangxp_goals',
   sprints: 'kanbangxp_sprints',
+  epics: 'kanbangxp_epics',
   labels: 'kanbangxp_labels',
   workflowColumns: 'kanbangxp_workflow_columns',
+  folders: 'kanbangxp_folders',
   theme: 'kanbangxp-theme',
   legacyTheme: 'planner-spell-theme',
+  customThemes: 'kanbangxp_custom_themes',
 } as const;
 
 const PREVIOUS_APP_PREFIX = ['goal', 'stride'].join('');
@@ -14,8 +17,10 @@ export const PREVIOUS_STORAGE_KEYS = {
   projects: `${PREVIOUS_APP_PREFIX}_projects`,
   goals: `${PREVIOUS_APP_PREFIX}_goals`,
   sprints: `${PREVIOUS_APP_PREFIX}_sprints`,
+  epics: `${PREVIOUS_APP_PREFIX}_epics`,
   labels: `${PREVIOUS_APP_PREFIX}_labels`,
   workflowColumns: `${PREVIOUS_APP_PREFIX}_workflow_columns`,
+  folders: `${PREVIOUS_APP_PREFIX}_folders`,
 } as const;
 
 export function getLocalStorageItem(key: string): string | null {

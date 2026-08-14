@@ -2,11 +2,23 @@ export type BoardType = 'Work' | 'Life';
 
 export type GoalStatus = string;
 
+export interface NavFolder {
+  id: string;
+  name: string;
+  order?: number;
+  tab: 'projects' | 'sprints' | 'epics' | 'labels' | 'views' | 'all';
+  isCollapsed?: boolean;
+  color?: string;
+  createdAt: number;
+}
+
 export interface Project {
   id: string;
   name: string;
   createdAt: number;
   workflowColumns: WorkflowColumn[];
+  folderId?: string;
+  order?: number;
 }
 
 export type Priority = 'low' | 'medium' | 'high';
@@ -35,6 +47,21 @@ export interface Sprint {
   status: SprintStatus;
   goalIds: string[];
   createdAt: number;
+  folderId?: string;
+  order?: number;
+}
+
+export type EpicStatus = 'planned' | 'active' | 'completed' | 'archived';
+
+export interface Epic {
+  id: string;
+  projectId: string;
+  name: string;
+  description: string;
+  status: EpicStatus;
+  createdAt: number;
+  folderId?: string;
+  order?: number;
 }
 
 export type GoalLifecycleStatus = 'active' | 'completed' | 'archived';
@@ -43,22 +70,82 @@ export interface Label {
   id: string;
   name: string;
   color: string;
+  folderId?: string;
+  order?: number;
+}
+
+export type ActivityEventType =
+  | 'created'
+  | 'comment'
+  | 'status_changed'
+  | 'column_changed'
+  | 'lifecycle_changed'
+  | 'priority_changed'
+  | 'progress_changed'
+  | 'due_date_changed'
+  | 'start_date_changed'
+  | 'category_changed'
+  | 'title_changed'
+  | 'description_changed'
+  | 'sprint_changed'
+  | 'epic_changed'
+  | 'labels_changed'
+  | 'metric_changed';
+
+export interface ActivityEvent {
+  id: string;
+  goalId: string;
+  type: ActivityEventType;
+  actor: string;
+  timestamp: number;
+  from?: any;
+  to?: any;
+  message?: string;
+  commentId?: string;
+}
+
+export interface Comment {
+  id: string;
+  goalId: string;
+  actor: string;
+  content: string;
+  createdAt: number;
+  updatedAt?: number;
+}
+
+export interface TimelineItem {
+  id: string;
+  goalId: string;
+  kind: 'event' | 'comment';
+  type: ActivityEventType;
+  actor: string;
+  timestamp: number;
+  from?: any;
+  to?: any;
+  message?: string;
+  comment?: Comment;
 }
 
 export interface Goal {
   id: string;
+  number?: number;
   projectId: string;
   sprintId?: string;
+  epicId?: string;
   title: string;
   description: string;
   status: GoalStatus;
   lifecycleStatus: GoalLifecycleStatus;
   board: BoardType;
+  category?: string;
   priority: Priority;
+  startDate?: number;
   dueDate?: number;
   successMetric?: SuccessMetric;
   plannedForToday?: boolean;
   labelIds?: string[];
+  activities?: ActivityEvent[];
+  comments?: Comment[];
   createdAt: number;
 }
 
@@ -72,3 +159,4 @@ export const DEFAULT_WORKFLOW_COLUMNS: WorkflowColumn[] = [
   { id: 'in-progress', title: 'In Progress' },
   { id: 'done', title: 'Done' },
 ];
+

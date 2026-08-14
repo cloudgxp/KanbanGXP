@@ -48,6 +48,7 @@ export function JsonGuide({ onClose }: JsonGuideProps) {
   "goals": [
     {
       "id": "goal_789",
+      "number": 1,
       "projectId": "proj_123",
       "sprintId": "sprint_456",
       "labelIds": ["label_1"],
@@ -59,6 +60,7 @@ export function JsonGuide({ onClose }: JsonGuideProps) {
       "board": "Work",
       "category": "Design",
       "createdAt": 1710928371000,
+      "startDate": 1710928371000,
       "dueDate": 1712102400000,
       "plannedForToday": true,
       "successMetric": {
@@ -67,7 +69,35 @@ export function JsonGuide({ onClose }: JsonGuideProps) {
           { "id": "chk_1", "text": "Wireframes", "completed": true },
           { "id": "chk_2", "text": "Mockups", "completed": false }
         ]
-      }
+      },
+      "activities": [
+        {
+          "id": "act_1",
+          "goalId": "goal_789",
+          "type": "created",
+          "actor": "You",
+          "timestamp": 1710928371000,
+          "message": "Created this goal"
+        },
+        {
+          "id": "act_2",
+          "goalId": "goal_789",
+          "type": "status_changed",
+          "actor": "You",
+          "timestamp": 1711000000000,
+          "from": "Backlog",
+          "to": "In Progress"
+        }
+      ],
+      "comments": [
+        {
+          "id": "cmt_1",
+          "goalId": "goal_789",
+          "actor": "You",
+          "content": "Wireframes are ready for review.",
+          "createdAt": 1711000500000
+        }
+      ]
     }
   ]
 }`;
@@ -196,11 +226,13 @@ export function JsonGuide({ onClose }: JsonGuideProps) {
             <div className="p-6">
               <ul className="space-y-4 text-sm">
                 <li><code className="text-indigo-600 font-bold">id</code> (string, required): Unique identifier.</li>
+                <li><code className="text-indigo-600 font-bold">number</code> (number, optional): Stable sequential issue number (e.g. 1, 2, 142) for URL routes and issue badge #142.</li>
                 <li><code className="text-indigo-600 font-bold">projectId</code> (string, required): Must match an ID in the projects array.</li>
                 <li><code className="text-indigo-600 font-bold">sprintId</code> (string | null, optional): Must match an ID in the sprints array, or null.</li>
+                <li><code className="text-indigo-600 font-bold">epicId</code> (string | null, optional): Must match an ID in the epics array, or null.</li>
                 <li><code className="text-indigo-600 font-bold">labelIds</code> (array of strings, optional): Array of IDs matching the labels array.</li>
                 <li><code className="text-indigo-600 font-bold">title</code> (string, required): Goal title.</li>
-                <li><code className="text-indigo-600 font-bold">description</code> (string, optional): Goal description.</li>
+                <li><code className="text-indigo-600 font-bold">description</code> (string, optional): Goal description (supports rich GitHub-flavored Markdown).</li>
                 <li>
                   <code className="text-indigo-600 font-bold">status</code> (string, required): ID of the matching entry in the goal’s project <code>workflowColumns</code>.
                 </li>
@@ -216,10 +248,17 @@ export function JsonGuide({ onClose }: JsonGuideProps) {
                   <code className="text-indigo-600 font-bold">board</code> (string, required): Allowed values:
                   <code className="ml-2 text-slate-500">"Work" | "Personal"</code>
                 </li>
-                <li><code className="text-indigo-600 font-bold">category</code> (string, required): Free-text category tag.</li>
+                <li><code className="text-indigo-600 font-bold">category</code> (string, optional): Free-text category tag.</li>
                 <li><code className="text-indigo-600 font-bold">createdAt</code> (number, required): Unix timestamp in milliseconds.</li>
+                <li><code className="text-indigo-600 font-bold">startDate</code> (number | null, optional): Unix timestamp in milliseconds.</li>
                 <li><code className="text-indigo-600 font-bold">dueDate</code> (number | null, optional): Unix timestamp in milliseconds.</li>
                 <li><code className="text-indigo-600 font-bold">plannedForToday</code> (boolean, optional): Whether it shows in Focus Mode.</li>
+                <li>
+                  <code className="text-indigo-600 font-bold">activities</code> (array of objects, optional): Append-only history of state changes, column moves, priority updates, and dates.
+                </li>
+                <li>
+                  <code className="text-indigo-600 font-bold">comments</code> (array of objects, optional): User comments with Markdown body and timestamps.
+                </li>
                 
                 <li className="pt-2 border-t border-slate-100">
                   <div className="font-bold text-slate-800 mb-2">successMetric (object, optional)</div>

@@ -1,5 +1,8 @@
 @import url('https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&family=JetBrains+Mono:wght@400;500&display=swap');
+@import "material-symbols/outlined.css";
+@import "material-symbols/rounded.css";
 @import "tailwindcss";
+@plugin "daisyui";
 
 @theme {
   --font-sans: "Inter", ui-sans-serif, system-ui, sans-serif;
@@ -9,10 +12,21 @@
   --color-column: var(--column);
   --color-card: var(--card);
   --color-text: var(--text);
+  --color-text-primary: var(--text-primary);
+  --color-text-secondary: var(--text-secondary);
   --color-text-muted: var(--text-muted);
+  --color-text-disabled: var(--text-disabled);
   --color-accent: var(--accent);
+  --color-accent-text: var(--accent-text);
+  --color-text-on-accent: var(--text-on-accent);
   --color-border: var(--border);
   --color-input: var(--input);
+  --color-sprint-bg: var(--sprint-bg);
+  --color-sprint-text: var(--sprint-text);
+  --color-sprint-border: var(--sprint-border);
+  --color-epic-bg: var(--epic-bg);
+  --color-epic-text: var(--epic-text);
+  --color-epic-border: var(--epic-border);
 }
 
 :root {
@@ -21,16 +35,27 @@
   --column: #f1f5f9;
   --card: #ffffff;
   --text: #0f172a;
+  --text-primary: #0f172a;
+  --text-secondary: #475569;
   --text-muted: #64748b;
+  --text-disabled: #94a3b8;
   --accent: #4f46e5;
+  --accent-text: #ffffff;
+  --text-on-accent: #ffffff;
   --border: #e2e8f0;
   --input: #ffffff;
+  --sprint-bg: #eef2ff;
+  --sprint-text: #4338ca;
+  --sprint-border: #c7d2fe;
+  --epic-bg: #f5f3ff;
+  --epic-text: #6d28d9;
+  --epic-border: #ddd6fe;
 }
 
 @layer base {
   body {
     background-color: var(--bg);
-    color: var(--text);
+    color: var(--text-primary);
     font-family: var(--font-sans);
     -webkit-font-smoothing: antialiased;
   }
@@ -38,6 +63,11 @@
   /* Ensure inputs, textareas, and selects in light containers/modals have dark, viewable text across all themes */
   input, textarea, select {
     color: inherit;
+  }
+
+  ::placeholder {
+    color: var(--text-muted);
+    opacity: 0.85;
   }
 
   .bg-white input,
@@ -100,24 +130,13 @@
   padding: 1rem;
 }
 
-.kanban-empty-state {
-  display: flex;
-  flex: 1;
-  min-height: 20rem;
-  flex-direction: column;
-  align-items: center;
-  justify-content: center;
-  gap: 1rem;
-  padding: 2rem 1rem;
-  text-align: center;
-}
-
 .goal-card {
   padding: 1rem;
   background-color: var(--card);
+  color: var(--text-primary);
   border-radius: 0.75rem;
   border: 1px solid var(--border);
-  box-shadow: 0 1px 2px 0 rgba(0, 0, 0, 0.05);
+  box-shadow: 0 1px 3px 0 rgba(0, 0, 0, 0.1);
   transition: all 0.2s;
   cursor: grab;
 }
@@ -126,8 +145,86 @@
   cursor: grabbing;
 }
 
+/* Ensure goal card contents inherit semantic theme colors */
+.goal-card h4 {
+  color: var(--text-primary);
+}
+
+.goal-card p {
+  color: var(--text-secondary);
+}
+
+/* Badge styles tailored for dark & midnight mode contrast */
+[data-theme="dark"] .badge-priority-high {
+  background-color: rgba(244, 63, 94, 0.18);
+  color: #fda4af;
+  border-color: rgba(244, 63, 94, 0.4);
+}
+
+[data-theme="dark"] .badge-priority-medium {
+  background-color: rgba(245, 158, 11, 0.18);
+  color: #fde68a;
+  border-color: rgba(245, 158, 11, 0.4);
+}
+
+[data-theme="dark"] .badge-priority-low {
+  background-color: rgba(16, 185, 129, 0.18);
+  color: #a7f3d0;
+  border-color: rgba(16, 185, 129, 0.4);
+}
+
+[data-theme="dark"] .badge-today {
+  background-color: rgba(245, 158, 11, 0.18);
+  color: #fbbf24;
+  border-color: rgba(245, 158, 11, 0.4);
+}
+
+[data-theme="dark"] .badge-epic-tag {
+  background-color: rgba(139, 92, 246, 0.18);
+  color: #c4b5fd;
+  border-color: rgba(139, 92, 246, 0.4);
+}
+
+/* Cyberpunk theme subtle neon accents */
+[data-theme-name="cyber"] .goal-card:hover {
+  box-shadow: 0 4px 16px rgba(106, 175, 242, 0.12), 0 0 1px rgba(204, 84, 208, 0.35);
+  border-color: rgba(106, 175, 242, 0.45);
+}
+
+[data-theme-name="cyber"] .badge-priority-high {
+  background-color: rgba(183, 78, 106, 0.22);
+  color: #ff9cb7;
+  border-color: rgba(183, 78, 106, 0.5);
+}
+
+[data-theme-name="cyber"] .badge-priority-medium {
+  background-color: rgba(204, 84, 208, 0.2);
+  color: #fca5ff;
+  border-color: rgba(204, 84, 208, 0.45);
+}
+
+[data-theme-name="cyber"] .badge-priority-low {
+  background-color: rgba(106, 175, 242, 0.2);
+  color: #9ed0ff;
+  border-color: rgba(106, 175, 242, 0.45);
+}
+
+[data-theme-name="cyber"] .badge-today {
+  background-color: rgba(235, 164, 210, 0.22);
+  color: #f5bade;
+  border-color: rgba(235, 164, 210, 0.5);
+}
+
+[data-theme-name="cyber"] .badge-epic-tag {
+  background-color: rgba(204, 84, 208, 0.2);
+  color: #f096f4;
+  border-color: rgba(204, 84, 208, 0.45);
+}
+
 @media (max-width: 640px) {
   .kanban-board-grid {
     gap: 1rem;
   }
 }
+
+
