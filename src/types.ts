@@ -136,7 +136,7 @@ export interface Goal {
   description: string;
   status: GoalStatus;
   lifecycleStatus: GoalLifecycleStatus;
-  board: BoardType;
+  board?: BoardType | string;
   category?: string;
   priority: Priority;
   startDate?: number;

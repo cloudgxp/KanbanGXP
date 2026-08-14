@@ -63,7 +63,7 @@ import {
 import { motion, AnimatePresence } from 'motion/react';
 import { cn } from './lib/utils';
 import { getLocalStorageItemWithMigration, isLocalStorageAvailable, PREVIOUS_STORAGE_KEYS, setLocalStorageItem, STORAGE_KEYS } from './lib/storage';
-import { Goal, GoalStatus, BoardType, DEFAULT_WORKFLOW_COLUMNS, WorkflowColumn, Project, Priority, SuccessMetricType, SuccessMetric, Sprint, SprintLength, GoalLifecycleStatus, SprintStatus, Label, Epic, EpicStatus, NavFolder } from './types';
+import { Goal, GoalStatus, DEFAULT_WORKFLOW_COLUMNS, WorkflowColumn, Project, Priority, SuccessMetricType, SuccessMetric, Sprint, SprintLength, GoalLifecycleStatus, SprintStatus, Label, Epic, EpicStatus, NavFolder } from './types';
 import { JsonGuide } from './components/JsonGuide';
 import { AboutModal } from './components/AboutModal';
 import { ThemePicker } from './components/ThemePicker';
@@ -1206,7 +1206,6 @@ const WorkflowConfigurator: React.FC<WorkflowConfiguratorProps> = ({ columns, ba
 // --- Main App ---
 
 export default function App() {
-  const [activeBoard, setActiveBoard] = useState<BoardType>('Work');
   const [projects, setProjects] = useState<Project[]>([]);
   const [activeProjectId, setActiveProjectId] = useState<string>('');
   const [goals, setGoals] = useState<Goal[]>([]);
@@ -2190,7 +2189,6 @@ export default function App() {
         description,
         status: newGoalStatus,
         lifecycleStatus: 'active',
-        board: activeBoard,
         priority,
         dueDate: dueDate ? new Date(dueDate).getTime() : undefined,
         successMetric,
@@ -2590,7 +2588,6 @@ export default function App() {
     ].some(value => value.toLocaleLowerCase().includes(normalizedSearchQuery));
 
     return g.projectId === activeProjectId &&
-      g.board === activeBoard &&
       (activeSprintId ? g.sprintId === activeSprintId : true) &&
       (activeEpicId ? g.epicId === activeEpicId : true) &&
       (showArchived ? g.lifecycleStatus === 'archived' : g.lifecycleStatus !== 'archived') &&
@@ -2642,8 +2639,6 @@ export default function App() {
     <div className="min-h-screen flex bg-bg">
       {/* Minibar Navigation */}
       <MinibarNav
-        activeBoard={activeBoard}
-        setActiveBoard={setActiveBoard}
         projects={projects}
         activeProjectId={activeProjectId}
         setActiveProjectId={setActiveProjectId}
@@ -2716,7 +2711,6 @@ export default function App() {
             sprints={sprints}
             epics={epics}
             workflowColumns={workflowColumns}
-            activeBoard={activeBoard}
             onExit={() => setIsStatsMode(false)}
             onSelectGoal={(goal) => openGoalDetails(goal)}
           />
@@ -3511,7 +3505,7 @@ export default function App() {
             >
               <div className="flex items-center justify-between mb-6">
                 <h2 className="text-2xl font-bold text-slate-900">
-                  {editingGoalId ? 'Edit' : 'New'} {activeBoard} Goal
+                  {editingGoalId ? 'Edit' : 'New'} Goal
                 </h2>
                 <button 
                   onClick={() => setIsModalOpen(false)}

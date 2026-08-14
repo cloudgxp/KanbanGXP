@@ -2,7 +2,7 @@ import React, { useState, useEffect } from 'react';
 import { motion, AnimatePresence } from 'motion/react';
 import { cn } from '../lib/utils';
 import { Icon } from './Icon';
-import { Project, Sprint, Epic, Goal, Label, BoardType, SprintStatus, EpicStatus, NavFolder } from '../types';
+import { Project, Sprint, Epic, Goal, Label, SprintStatus, EpicStatus, NavFolder } from '../types';
 import { ThemePicker } from './ThemePicker';
 import { NavFolderView } from './NavFolderView';
 import { NavTooltip } from './NavTooltip';
@@ -10,8 +10,6 @@ import { NavTooltip } from './NavTooltip';
 export type MinibarTab = 'views' | 'projects' | 'sprints' | 'epics' | 'labels' | 'settings' | 'themes' | null;
 
 export interface MinibarNavProps {
-  activeBoard: BoardType;
-  setActiveBoard: (board: BoardType) => void;
   projects: Project[];
   activeProjectId: string | null;
   setActiveProjectId: (id: string | null) => void;
@@ -64,8 +62,6 @@ export interface MinibarNavProps {
 }
 
 export const MinibarNav: React.FC<MinibarNavProps> = ({
-  activeBoard,
-  setActiveBoard,
   projects,
   activeProjectId,
   setActiveProjectId,
@@ -188,46 +184,6 @@ export const MinibarNav: React.FC<MinibarNavProps> = ({
               <Icon name="view_kanban" size={20} className="text-white" />
             </button>
           </NavTooltip>
-
-          {/* Goal Context Switcher (Work / Life) */}
-          <div className="flex flex-col gap-1 p-1 bg-column rounded-xl border border-border/50 w-full items-center">
-            <NavTooltip label="Work Goals Board" side="right">
-              <button
-                type="button"
-                role="radio"
-                aria-checked={activeBoard === 'Work'}
-                aria-label="Work goals"
-                onClick={() => setActiveBoard('Work')}
-                className={cn(
-                  "w-8 h-8 rounded-lg flex items-center justify-center transition-all cursor-pointer",
-                  activeBoard === 'Work'
-                    ? "bg-card text-accent shadow-xs font-bold ring-1 ring-border/50"
-                    : "text-text-muted hover:text-text hover:bg-card/50"
-                )}
-              >
-                <Icon name="business_center" size={16} />
-              </button>
-            </NavTooltip>
-            <NavTooltip label="Life Goals Board" side="right">
-              <button
-                type="button"
-                role="radio"
-                aria-checked={activeBoard === 'Life'}
-                aria-label="Life goals"
-                onClick={() => setActiveBoard('Life')}
-                className={cn(
-                  "w-8 h-8 rounded-lg flex items-center justify-center transition-all cursor-pointer",
-                  activeBoard === 'Life'
-                    ? "bg-card text-accent shadow-xs font-bold ring-1 ring-border/50"
-                    : "text-text-muted hover:text-text hover:bg-card/50"
-                )}
-              >
-                <Icon name="favorite" size={16} filled={activeBoard === 'Life'} />
-              </button>
-            </NavTooltip>
-          </div>
-
-          <div className="w-8 h-[1px] bg-border/80" />
 
           {/* Primary Navigation Icons */}
           <div className="flex flex-col gap-2 w-full items-center">

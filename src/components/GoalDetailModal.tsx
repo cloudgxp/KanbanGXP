@@ -279,15 +279,6 @@ export const GoalDetailModal: React.FC<GoalDetailModalProps> = ({
     );
   };
 
-  // Board Type Change
-  const handleBoardChange = (newBoard: 'Work' | 'Life') => {
-    if (newBoard === goal.board) return;
-    handlePropertyChange(
-      { board: newBoard },
-      'category_changed',
-      { from: goal.board, to: newBoard }
-    );
-  };
 
   // Planned for Today Toggle
   const handleTogglePlannedToday = () => {
@@ -857,7 +848,7 @@ export const GoalDetailModal: React.FC<GoalDetailModalProps> = ({
                 </div>
               </div>
 
-              {/* Project & Board Classification */}
+              {/* Project Classification */}
               <div className="space-y-3 pt-2 border-t border-slate-200">
                 <div className="space-y-1.5">
                   <label className="text-[11px] font-bold text-slate-500 uppercase tracking-wider block">
@@ -874,27 +865,6 @@ export const GoalDetailModal: React.FC<GoalDetailModalProps> = ({
                       </option>
                     ))}
                   </select>
-                </div>
-
-                <div className="space-y-1.5">
-                  <label className="text-[11px] font-bold text-slate-500 uppercase tracking-wider block">
-                    Board
-                  </label>
-                  <div className="flex bg-slate-200/60 p-1 rounded-xl gap-1">
-                    {(['Work', 'Life'] as const).map((b) => (
-                      <button
-                        key={b}
-                        type="button"
-                        onClick={() => handleBoardChange(b)}
-                        className={cn(
-                          "flex-1 py-1 rounded-lg text-xs font-bold transition-all",
-                          goal.board === b ? "bg-white text-slate-900 shadow-sm" : "text-slate-600 hover:text-slate-900"
-                        )}
-                      >
-                        {b}
-                      </button>
-                    ))}
-                  </div>
                 </div>
               </div>
 
