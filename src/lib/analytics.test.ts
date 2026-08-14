@@ -195,16 +195,16 @@ assertEqual(streakResult.currentStreak, 3, 'calculateCompletionStreak calculates
 assertEqual(streakResult.longestStreak, 3, 'calculateCompletionStreak calculates longest streak');
 
 // 7. Filtering
-const filteredWork = filterGoals(
+const filteredAll = filterGoals(
   mockGoals,
-  { datePreset: 'all', board: 'Work' },
+  { datePreset: 'all' },
   FIXED_NOW
 );
-assertEqual(filteredWork.length, 3, 'filterGoals filters by board=Work');
+assertEqual(filteredAll.length, 3, 'filterGoals returns all goals with datePreset=all');
 
 const filteredHigh = filterGoals(
   mockGoals,
-  { datePreset: 'all', board: 'Work', priority: 'high' },
+  { datePreset: 'all', priority: 'high' },
   FIXED_NOW
 );
 assertEqual(filteredHigh.length, 2, 'filterGoals filters by priority=high');
@@ -257,7 +257,7 @@ const summary = calculateSummaryMetrics({
   sprints: mockSprints,
   epics: mockEpics,
   columns: [{ id: 'todo', title: 'To Do' }, { id: 'done', title: 'Done' }],
-  filter: { datePreset: 'all', board: 'All' },
+  filter: { datePreset: 'all' },
   now: FIXED_NOW,
 });
 assertEqual(summary.totalEligible, 3, 'Summary total eligible is 3');

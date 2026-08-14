@@ -1,4 +1,4 @@
-import { Goal, Project, Sprint, Epic, WorkflowColumn, BoardType, Priority } from '../types';
+import { Goal, Project, Sprint, Epic, WorkflowColumn, Priority } from '../types';
 
 export type DateRangePreset = '7d' | '30d' | '90d' | 'this_year' | 'all' | 'custom';
 export type ItemTypeFilter = 'all' | 'goals' | 'sprints' | 'epics' | 'projects';
@@ -7,7 +7,6 @@ export interface AnalyticsFilter {
   datePreset: DateRangePreset;
   customStart?: number; // ms timestamp
   customEnd?: number;   // ms timestamp
-  board: BoardType | 'All';
   itemType?: ItemTypeFilter;
   projectId?: string | null;
   sprintId?: string | null;
@@ -346,12 +345,7 @@ export function filterGoals(
   );
 
   return goals.filter(goal => {
-    // 1. Board filter
-    if (filter.board !== 'All' && goal.board !== filter.board) {
-      return false;
-    }
-
-    // 2. Project filter
+    // 1. Project filter
     if (filter.projectId && goal.projectId !== filter.projectId) {
       return false;
     }

@@ -7,7 +7,6 @@ import {
   Sprint,
   Epic,
   WorkflowColumn,
-  BoardType,
   Priority,
 } from '../types';
 import {
@@ -31,7 +30,6 @@ export interface StatsDashboardProps {
   sprints: Sprint[];
   epics: Epic[];
   workflowColumns: WorkflowColumn[];
-  activeBoard: BoardType;
   onExit: () => void;
   onSelectGoal?: (goal: Goal) => void;
 }
@@ -42,12 +40,10 @@ export const StatsDashboard: React.FC<StatsDashboardProps> = ({
   sprints,
   epics,
   workflowColumns,
-  activeBoard,
   onExit,
   onSelectGoal,
 }) => {
   // Filter state
-  const [boardFilter, setBoardFilter] = useState<BoardType | 'All'>(activeBoard);
   const [datePreset, setDatePreset] = useState<DateRangePreset>('30d');
   const [customStart, setCustomStart] = useState<string>('');
   const [customEnd, setCustomEnd] = useState<string>('');
@@ -66,7 +62,6 @@ export const StatsDashboard: React.FC<StatsDashboardProps> = ({
       datePreset,
       customStart: customStart ? new Date(customStart).getTime() : undefined,
       customEnd: customEnd ? new Date(customEnd).getTime() + 86_400_000 : undefined,
-      board: boardFilter,
       projectId: projectFilter !== 'all' ? projectFilter : null,
       sprintId: sprintFilter !== 'all' ? sprintFilter : null,
       epicId: epicFilter !== 'all' ? epicFilter : null,
@@ -77,7 +72,6 @@ export const StatsDashboard: React.FC<StatsDashboardProps> = ({
     datePreset,
     customStart,
     customEnd,
-    boardFilter,
     projectFilter,
     sprintFilter,
     epicFilter,
@@ -108,7 +102,6 @@ export const StatsDashboard: React.FC<StatsDashboardProps> = ({
   // Filtered Goals for Chart calculations
   const filteredGoals = useMemo(() => {
     return goals.filter(goal => {
-      if (activeFilter.board !== 'All' && goal.board !== activeFilter.board) return false;
       if (activeFilter.projectId && goal.projectId !== activeFilter.projectId) return false;
       if (activeFilter.sprintId && goal.sprintId !== activeFilter.sprintId) return false;
       if (activeFilter.epicId && goal.epicId !== activeFilter.epicId) return false;
@@ -196,26 +189,7 @@ export const StatsDashboard: React.FC<StatsDashboardProps> = ({
             </div>
           </div>
 
-          <div className="flex items-center gap-3 w-full md:w-auto justify-between md:justify-end">
-            {/* Board Context Selector */}
-            <div className="flex items-center p-1 bg-column rounded-xl border border-border text-xs font-semibold">
-              {(['Work', 'Life', 'All'] as const).map(b => (
-                <button
-                  key={b}
-                  type="button"
-                  onClick={() => setBoardFilter(b)}
-                  className={cn(
-                    "px-3 py-1.5 rounded-lg transition-all cursor-pointer",
-                    boardFilter === b
-                      ? "bg-card text-accent shadow-xs font-bold ring-1 ring-border/60"
-                      : "text-text-muted hover:text-text"
-                  )}
-                >
-                  {b === 'All' ? 'All Boards' : `${b} Board`}
-                </button>
-              ))}
-            </div>
-
+          <div className="flex items-center gap-3 w-full md:w-auto justify-end">
             {/* Exit to Board Button */}
             <button
               type="button"
@@ -869,8 +843,6 @@ export const StatsDashboard: React.FC<StatsDashboardProps> = ({
                           {goal.title}
                         </div>
                         <div className="text-[11px] text-text-muted flex items-center gap-2 mt-0.5">
-                          <span>{goal.board} Board</span>
-                          <span>•</span>
                           <span>Completed {completedDate}</span>
                         </div>
                       </div>

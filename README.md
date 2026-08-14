@@ -12,14 +12,12 @@ KanbanGXP is designed to:
 - Keep user data private and under the user's control.
 - Support different workflows through customizable Kanban columns.
 - Make goals measurable with checklists, milestones, and numeric targets.
-- Separate Work and Life planning while keeping both in one application.
 - Remain easy to self-host as a static website.
 - Keep workspace data portable through JSON import and export.
 
 ## Features
 
 - Multiple projects
-- Separate Work and Life boards
 - Custom workflow columns that can be created, renamed, reordered, and deleted
 - Drag-and-drop goal management
 - Goal priorities, due dates, labels, and lifecycle states

@@ -57,7 +57,6 @@ export function JsonGuide({ onClose }: JsonGuideProps) {
       "status": "in-progress",
       "lifecycleStatus": "active",
       "priority": "high",
-      "board": "Work",
       "category": "Design",
       "createdAt": 1710928371000,
       "startDate": 1710928371000,
@@ -243,10 +242,6 @@ export function JsonGuide({ onClose }: JsonGuideProps) {
                 <li>
                   <code className="text-indigo-600 font-bold">priority</code> (string, required): Allowed values:
                   <code className="ml-2 text-slate-500">"low" | "medium" | "high"</code>
-                </li>
-                <li>
-                  <code className="text-indigo-600 font-bold">board</code> (string, required): Allowed values:
-                  <code className="ml-2 text-slate-500">"Work" | "Personal"</code>
                 </li>
                 <li><code className="text-indigo-600 font-bold">category</code> (string, optional): Free-text category tag.</li>
                 <li><code className="text-indigo-600 font-bold">createdAt</code> (number, required): Unix timestamp in milliseconds.</li>
