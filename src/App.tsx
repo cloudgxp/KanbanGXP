@@ -1214,6 +1214,10 @@ export default function App() {
   const dragInitialGoalRef = useRef<{ id: string; status: GoalStatus } | null>(null);
   const [isModalOpen, setIsModalOpen] = useState(false);
   const [isProjectModalOpen, setIsProjectModalOpen] = useState(false);
+  const [isWorkflowModalOpen, setIsWorkflowModalOpen] = useState(false);
+  const [isEditingProjectName, setIsEditingProjectName] = useState(false);
+  const [inlineProjectName, setInlineProjectName] = useState('');
+  const inlineProjectNameInputRef = useRef<HTMLInputElement>(null);
   const [newGoalStatus, setNewGoalStatus] = useState<GoalStatus>(DEFAULT_WORKFLOW_COLUMNS[0].id);
   const [projectWorkflowColumns, setProjectWorkflowColumns] = useState<WorkflowColumn[]>(DEFAULT_WORKFLOW_COLUMNS);
   const [projectWorkflowBaseColumns, setProjectWorkflowBaseColumns] = useState<WorkflowColumn[]>(DEFAULT_WORKFLOW_COLUMNS);
@@ -1621,7 +1625,27 @@ export default function App() {
   const selectedGoal = selectedGoalId ? goals.find(g => g.id === selectedGoalId) || null : null;
   const activeProject = projects.find(p => p.id === activeProjectId);
   const workflowColumns = activeProject?.workflowColumns ?? DEFAULT_WORKFLOW_COLUMNS;
+  const activeWorkflowTemplate = WORKFLOW_TEMPLATES.find(template => workflowMatchesStages(workflowColumns, template.stages));
+  const workflowTypeName = activeWorkflowTemplate ? activeWorkflowTemplate.name : 'Custom';
 
+  useEffect(() => {
+    if (isEditingProjectName && inlineProjectNameInputRef.current) {
+      inlineProjectNameInputRef.current.focus();
+      inlineProjectNameInputRef.current.select();
+    }
+  }, [isEditingProjectName]);
+
+  useEffect(() => {
+    setIsEditingProjectName(false);
+  }, [activeProjectId]);
+
+  const handleSaveInlineProjectName = () => {
+    const trimmed = inlineProjectName.trim();
+    if (trimmed && activeProject && trimmed !== activeProject.name) {
+      setProjects(current => current.map(p => p.id === activeProject.id ? { ...p, name: trimmed } : p));
+    }
+    setIsEditingProjectName(false);
+  };
 
   const openCreateProjectModal = () => {
     const defaultWorkflow = DEFAULT_WORKFLOW_COLUMNS.map(column => ({ ...column }));
@@ -1654,11 +1678,31 @@ export default function App() {
     setProjectWorkflowError(null);
   };
 
+  const openEditWorkflowModal = (project: Project) => {
+    const projectWorkflow = project.workflowColumns.map(column => ({ ...column }));
+    setEditingProjectId(project.id);
+    setProjectName(project.name);
+    setProjectWorkflowColumns(projectWorkflow);
+    setProjectWorkflowBaseColumns(projectWorkflow);
+    setProjectWorkflowError(null);
+    setPendingWorkflowColumns(null);
+    setWorkflowGoalMigrations({});
+    setIsWorkflowModalOpen(true);
+  };
+
+  const closeWorkflowModal = () => {
+    setIsWorkflowModalOpen(false);
+    setPendingWorkflowColumns(null);
+    setWorkflowGoalMigrations({});
+    setProjectWorkflowError(null);
+    setEditingProjectId(null);
+  };
+
   const commitProject = (columns: WorkflowColumn[], migrations: Record<string, GoalStatus> = {}) => {
     const normalizedColumns = columns.map(column => ({ ...column, title: column.title.trim() }));
     if (editingProjectId) {
       setProjects(currentProjects => currentProjects.map(project => project.id === editingProjectId
-        ? { ...project, name: projectName.trim(), workflowColumns: normalizedColumns }
+        ? { ...project, name: projectName.trim() || project.name, workflowColumns: normalizedColumns }
         : project
       ));
       setGoals(currentGoals => currentGoals.map(goal =>
@@ -1682,6 +1726,32 @@ export default function App() {
     setProjectName('');
     setEditingProjectId(null);
     closeProjectModal();
+    closeWorkflowModal();
+  };
+
+  const saveWorkflow = (e: React.FormEvent) => {
+    e.preventDefault();
+    const validationError = getWorkflowValidationError(projectWorkflowColumns);
+    if (validationError) {
+      setProjectWorkflowError(validationError);
+      return;
+    }
+
+    if (editingProjectId) {
+      const savedProject = projects.find(project => project.id === editingProjectId);
+      const removedColumnsWithGoals = (savedProject?.workflowColumns ?? []).filter(column =>
+        !projectWorkflowColumns.some(candidate => candidate.id === column.id) &&
+        goals.some(goal => goal.projectId === editingProjectId && goal.status === column.id)
+      );
+      if (removedColumnsWithGoals.length > 0) {
+        setPendingWorkflowColumns(projectWorkflowColumns.map(column => ({ ...column, title: column.title.trim() })));
+        setWorkflowGoalMigrations({});
+        return;
+      }
+    }
+
+    commitProject(projectWorkflowColumns);
+    setIsWorkflowModalOpen(false);
   };
 
   const addProject = (e: React.FormEvent) => {
@@ -2777,8 +2847,75 @@ export default function App() {
           <div className="flex items-center gap-4">
             <div className="h-8 w-[1px] bg-border hidden md:block" />
             <div>
-              <h2 className="text-xl font-bold text-text-primary">{activeProject?.name || 'Loading...'}</h2>
-              <div className="flex items-center gap-2 text-[10px] font-bold text-text-muted uppercase tracking-widest">
+              {isEditingProjectName ? (
+                <form
+                  onSubmit={(e) => {
+                    e.preventDefault();
+                    handleSaveInlineProjectName();
+                  }}
+                  className="flex items-center gap-1.5"
+                >
+                  <input
+                    ref={inlineProjectNameInputRef}
+                    type="text"
+                    value={inlineProjectName}
+                    onChange={(e) => setInlineProjectName(e.target.value)}
+                    onKeyDown={(e) => {
+                      if (e.key === 'Escape') {
+                        setIsEditingProjectName(false);
+                      }
+                    }}
+                    onBlur={() => {
+                      handleSaveInlineProjectName();
+                    }}
+                    aria-label="Edit project name"
+                    className="text-xl font-bold text-text-primary bg-column border border-accent/60 focus:border-accent rounded-xl px-2.5 py-0.5 outline-none ring-2 ring-accent/20 transition-all max-w-[240px] sm:max-w-xs"
+                  />
+                  <button
+                    type="submit"
+                    onMouseDown={(e) => e.preventDefault()}
+                    className="p-1.5 rounded-lg bg-accent text-accent-text hover:brightness-110 transition-all cursor-pointer shadow-xs"
+                    title="Save name (Enter)"
+                    aria-label="Save project name"
+                  >
+                    <Check size={14} />
+                  </button>
+                  <button
+                    type="button"
+                    onMouseDown={(e) => {
+                      e.preventDefault();
+                      setIsEditingProjectName(false);
+                    }}
+                    className="p-1.5 rounded-lg text-text-muted hover:text-text-primary hover:bg-column transition-all cursor-pointer"
+                    title="Cancel (Esc)"
+                    aria-label="Cancel editing project name"
+                  >
+                    <X size={14} />
+                  </button>
+                </form>
+              ) : (
+                <button
+                  type="button"
+                  onClick={() => {
+                    if (activeProject) {
+                      setInlineProjectName(activeProject.name);
+                      setIsEditingProjectName(true);
+                    }
+                  }}
+                  className="group flex items-center gap-2 cursor-pointer text-left rounded-lg py-0.5 px-1.5 -mx-1.5 hover:bg-column/80 transition-colors"
+                  title="Click to edit project name"
+                  aria-label={`Project: ${activeProject?.name || 'Loading...'}. Click to edit name.`}
+                >
+                  <h2 className="text-xl font-bold text-text-primary group-hover:text-accent transition-colors">
+                    {activeProject?.name || 'Loading...'}
+                  </h2>
+                  <Edit2
+                    size={14}
+                    className="text-text-muted opacity-0 group-hover:opacity-100 group-hover:text-accent transition-all shrink-0"
+                  />
+                </button>
+              )}
+              <div className="flex items-center gap-2 text-[10px] font-bold text-text-muted uppercase tracking-widest mt-0.5">
                 <LayoutGrid size={10} />
                 <span>Kanban Board</span>
               </div>
@@ -2903,10 +3040,24 @@ export default function App() {
         {/* Kanban Board */}
         <main className="flex-1 overflow-x-auto bg-bg px-4 py-6 sm:p-8">
           <div className="h-full">
-            <div className="mb-3">
-              <p className="text-xs font-medium text-text-muted">
-                {workflowColumns.length} workflow {workflowColumns.length === 1 ? 'stage' : 'stages'}
-              </p>
+            <div className="mb-4 flex items-center gap-3">
+              <button
+                type="button"
+                onClick={() => {
+                  if (activeProject) {
+                    openEditWorkflowModal(activeProject);
+                  }
+                }}
+                className="group inline-flex items-center gap-2 rounded-xl border border-border/80 bg-card/80 px-3.5 py-1.5 text-xs font-medium text-text-secondary shadow-xs hover:border-accent/50 hover:bg-card hover:text-text-primary transition-all cursor-pointer"
+                title="Click to edit workflow type and stages"
+                aria-label={`Edit workflow type: currently ${workflowTypeName} with ${workflowColumns.length} stages`}
+              >
+                <span className="flex h-2 w-2 rounded-full bg-accent" aria-hidden="true" />
+                <span className="font-bold text-text-primary">{workflowTypeName}</span>
+                <span className="text-text-muted/60">•</span>
+                <span className="text-text-muted">{workflowColumns.length} {workflowColumns.length === 1 ? 'stage' : 'stages'}</span>
+                <Edit2 size={12} className="text-text-muted group-hover:text-accent transition-colors ml-0.5" />
+              </button>
             </div>
             <DndContext
               sensors={sensors}
@@ -3361,6 +3512,78 @@ export default function App() {
                     className="btn flex-1 rounded-xl font-semibold border-none shadow-lg shadow-accent/25 transition-all hover:brightness-110"
                   >
                     {editingProjectId ? 'Save Project' : 'Create Project'}
+                  </button>
+                </div>
+              </form>
+            </motion.div>
+          </div>
+        )}
+      </AnimatePresence>
+
+      {/* Edit Workflow Modal */}
+      <AnimatePresence>
+        {isWorkflowModalOpen && (
+          <div className="fixed inset-0 z-[60] flex items-center justify-center p-4">
+            <motion.div
+              initial={{ opacity: 0 }}
+              animate={{ opacity: 1 }}
+              exit={{ opacity: 0 }}
+              onClick={closeWorkflowModal}
+              className="absolute inset-0 bg-slate-900/40 backdrop-blur-sm"
+            />
+            <motion.div
+              initial={{ opacity: 0, scale: 0.95, y: 20 }}
+              animate={{ opacity: 1, scale: 1, y: 0 }}
+              exit={{ opacity: 0, scale: 0.95, y: 20 }}
+              role="dialog"
+              aria-modal="true"
+              aria-labelledby="workflow-edit-title"
+              className="relative max-h-[90vh] w-full max-w-2xl overflow-y-auto rounded-3xl bg-white p-6 text-slate-900 shadow-2xl sm:p-8"
+            >
+              <div className="mb-6 flex items-start justify-between">
+                <div>
+                  <h2 id="workflow-edit-title" className="text-2xl font-bold text-slate-900">
+                    Edit Workflow
+                  </h2>
+                  <p className="mt-1 text-sm text-slate-500">
+                    Choose a workflow template or customize stages for <span className="font-semibold text-slate-800">{activeProject?.name}</span>.
+                  </p>
+                </div>
+                <button
+                  type="button"
+                  onClick={closeWorkflowModal}
+                  className="rounded-xl p-2 text-slate-400 hover:bg-slate-100 hover:text-slate-700 transition-colors cursor-pointer"
+                  aria-label="Close workflow editor"
+                >
+                  <X size={20} />
+                </button>
+              </div>
+              <form onSubmit={saveWorkflow} className="space-y-5">
+                <WorkflowConfigurator
+                  columns={projectWorkflowColumns}
+                  baseColumns={projectWorkflowBaseColumns}
+                  error={projectWorkflowError}
+                  onChange={setProjectWorkflowColumns}
+                  onError={setProjectWorkflowError}
+                />
+
+                <div className="flex gap-3 pt-4">
+                  <button
+                    type="button"
+                    onClick={closeWorkflowModal}
+                    className="flex-1 px-4 py-3 rounded-xl font-bold text-slate-700 hover:bg-slate-100 transition-colors cursor-pointer"
+                  >
+                    Cancel
+                  </button>
+                  <button
+                    type="submit"
+                    style={{
+                      backgroundColor: 'var(--accent)',
+                      color: 'var(--accent-text)',
+                    }}
+                    className="btn flex-1 rounded-xl font-semibold border-none shadow-lg shadow-accent/25 transition-all hover:brightness-110"
+                  >
+                    Save Workflow
                   </button>
                 </div>
               </form>
