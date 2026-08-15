@@ -538,7 +538,7 @@ const SortableGoalCard = ({ goal, allGoals, labels, sprints, epics, onDelete, on
                   className="w-full flex items-start gap-3 text-[10px] text-text-secondary hover:text-text-primary transition-colors text-left group/milestone relative cursor-pointer"
                 >
                   {/* Vertical line between milestones */}
-                  {idx < (goal.successMetric.items?.length || 0) - 1 && (
+                  {idx < (goal.successMetric?.items?.length || 0) - 1 && (
                     <div className={cn(
                       "absolute left-[5px] top-[14px] w-[1px] h-[calc(100%+4px)]",
                       item.completed ? "bg-emerald-500" : "bg-border"
@@ -744,7 +744,7 @@ const StaticGoalCard = ({ goal, allGoals = [], labels, epics = [], onEdit }: { g
                   className="w-full flex items-start gap-3 text-[10px] text-text-secondary text-left relative"
                 >
                   {/* Vertical line between milestones */}
-                  {idx < (goal.successMetric.items?.length || 0) - 1 && (
+                  {idx < (goal.successMetric?.items?.length || 0) - 1 && (
                     <div className={cn(
                       "absolute left-[5px] top-[14px] w-[1px] h-[calc(100%+4px)]",
                       item.completed ? "bg-emerald-500" : "bg-border"
@@ -2711,7 +2711,7 @@ export default function App() {
       <MinibarNav
         projects={projects}
         activeProjectId={activeProjectId}
-        setActiveProjectId={setActiveProjectId}
+        setActiveProjectId={(id) => setActiveProjectId(id || '')}
         openCreateProjectModal={openCreateProjectModal}
         openEditProjectModal={openEditProjectModal}
         deleteProject={deleteProject}
