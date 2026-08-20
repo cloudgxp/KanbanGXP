@@ -17,21 +17,21 @@
     "@dnd-kit/utilities": "^3.2.2",
     "clsx": "^2.1.1",
     "lucide-react": "^1.31.0",
-    "material-symbols": "^0.45.10",
+    "material-symbols": "^0.46.0",
     "motion": "^13.1.0",
     "react": "^19.0.0",
     "react-dom": "^19.2.8",
     "tailwind-merge": "^3.6.0"
   },
   "devDependencies": {
-    "@tailwindcss/vite": "^4.1.14",
+    "@tailwindcss/vite": "^4.3.3",
     "@types/node": "^26.2.0",
     "@types/react": "^19.2.18",
     "@types/react-dom": "^19.2.4",
     "@vitejs/plugin-react": "^6.0.5",
-    "daisyui": "^5.7.16",
+    "daisyui": "^5.7.17",
     "tailwindcss": "^4.1.14",
-    "tsx": "^4.23.5",
+    "tsx": "^4.23.12",
     "typescript": "~7.0.2",
     "vite": "^8.2.1"
   }
