@@ -58,7 +58,9 @@ import {
   ShieldCheck,
   Layers,
   MessageSquare,
-  Sparkles
+  Sparkles,
+  CornerDownRight,
+  ListTree
 } from 'lucide-react';
 import { motion, AnimatePresence } from 'motion/react';
 import { cn } from './lib/utils';
@@ -78,9 +80,17 @@ import {
   generateStableGoalNumber, 
   createActivityEvent, 
   calculateGoalProgress, 
-  resolveGoalByQuery,
+  resolveGoalByQuery, 
   generateId 
 } from './lib/timeline';
+import {
+  getSubgoals,
+  calculateSubgoalProgress,
+  getValidParentGoals,
+  handleParentDeletion,
+  checkAllSubgoalsCompleted,
+  ParentDeletionStrategy,
+} from './lib/subgoals';
 import {
   createNavFolder,
   deleteNavFolder,
@@ -154,6 +164,10 @@ const SortableGoalCard = ({ goal, allGoals, labels, sprints, epics, onDelete, on
   const currentEpicCompleted = currentEpicGoals.filter(item => item.lifecycleStatus === 'completed').length;
   const currentEpicProgress = currentEpicGoals.length ? Math.round((currentEpicCompleted / currentEpicGoals.length) * 100) : 0;
 
+  const subgoals = getSubgoals(allGoals, goal.id);
+  const subgoalProgress = calculateSubgoalProgress(allGoals, goal.id);
+  const parentGoal = goal.parentId ? allGoals.find(g => g.id === goal.parentId) : undefined;
+
   useEffect(() => {
     if (!isSprintMenuOpen) return;
 
@@ -220,8 +234,8 @@ const SortableGoalCard = ({ goal, allGoals, labels, sprints, epics, onDelete, on
       onClick={() => onEdit(goal)}
     >
       <div className="flex justify-between items-start mb-2">
-        <div className="flex flex-col gap-1.5 pr-6">
-          <div className="flex flex-wrap gap-1">
+        <div className="flex flex-col gap-1.5 pr-6 w-full min-w-0">
+          <div className="flex flex-col items-start gap-1">
             <div className={cn(
               "badge badge-xs font-bold uppercase tracking-wider border gap-0.5",
               getPriorityColor(goal.priority)
@@ -231,18 +245,30 @@ const SortableGoalCard = ({ goal, allGoals, labels, sprints, epics, onDelete, on
               {goal.priority === 'low' && <Icon name="keyboard_arrow_down" size={10} weight={700} />}
               {goal.priority}
             </div>
+            {parentGoal && (
+              <div className="badge badge-xs gap-1 border border-slate-200 bg-slate-100 font-semibold text-text-secondary dark:bg-slate-800 dark:border-slate-700 max-w-full truncate" title={`Subgoal of: ${parentGoal.title}`}>
+                <Icon name="subdirectory_arrow_right" size={10} className="shrink-0 text-text-muted" aria-hidden="true" />
+                <span className="truncate">Subgoal: {parentGoal.title}</span>
+              </div>
+            )}
+            {subgoals.length > 0 && (
+              <div className="badge badge-xs gap-1 border border-indigo-200 bg-indigo-50 font-bold text-indigo-700 dark:bg-indigo-950/60 dark:text-indigo-300 dark:border-indigo-800 max-w-full" title={`${subgoalProgress.completed} of ${subgoalProgress.total} subgoals completed`}>
+                <Icon name="account_tree" size={10} aria-hidden="true" />
+                <span>{subgoalProgress.completed}/{subgoalProgress.total} subgoals</span>
+              </div>
+            )}
+            {currentEpic && (
+              <div className="badge badge-xs gap-1 border border-violet-200 bg-violet-50 font-bold text-violet-700 badge-epic-tag max-w-full truncate">
+                <Icon name="diamond" size={10} aria-hidden="true" />
+                <span className="max-w-40 truncate">{currentEpic.name}</span>
+                <span aria-hidden="true">· {currentEpicProgress}%</span>
+                <span className="sr-only">Epic</span>
+              </div>
+            )}
             {goal.plannedForToday && (
               <div className="badge badge-xs font-bold uppercase tracking-wider border bg-amber-50 text-amber-700 border-amber-200 badge-today gap-1">
                 <Icon name="wb_sunny" size={10} filled className="text-amber-500" />
                 Today
-              </div>
-            )}
-            {currentEpic && (
-              <div className="badge badge-xs gap-1 border border-violet-200 bg-violet-50 font-bold text-violet-700 badge-epic-tag">
-                <Icon name="diamond" size={10} aria-hidden="true" />
-                <span className="max-w-28 truncate">{currentEpic.name}</span>
-                <span aria-hidden="true">· {currentEpicProgress}%</span>
-                <span className="sr-only">Epic</span>
               </div>
             )}
           </div>
@@ -277,7 +303,7 @@ const SortableGoalCard = ({ goal, allGoals, labels, sprints, epics, onDelete, on
           )}
         </div>
         <div className={cn(
-          "absolute right-2 top-2 flex items-center gap-1 opacity-0 transition-opacity group-hover:opacity-100 group-focus-within:opacity-100",
+          "absolute right-2 top-2 flex items-center gap-1 opacity-0 transition-opacity group-hover:opacity-100 group-focus-within:opacity-100 bg-card/90 backdrop-blur-xs rounded-lg p-0.5 shadow-xs border border-border/40",
           (isSprintMenuOpen || isEpicMenuOpen) && "z-30 opacity-100"
         )}>
           <div 
@@ -529,16 +555,16 @@ const SortableGoalCard = ({ goal, allGoals, labels, sprints, epics, onDelete, on
             </div>
           )}
 
-          {goal.successMetric.type === 'milestones' && (
+          {goal.successMetric.type === 'milestones' && goal.successMetric.items && (
             <div className="space-y-3 pl-1">
-              {goal.successMetric.items?.map((item, idx) => (
+              {goal.successMetric.items.map((item, idx) => (
                 <button
                   key={item.id}
                   onClick={() => onToggleChecklist(goal.id, item.id)}
                   className="w-full flex items-start gap-3 text-[10px] text-text-secondary hover:text-text-primary transition-colors text-left group/milestone relative cursor-pointer"
                 >
                   {/* Vertical line between milestones */}
-                  {idx < (goal.successMetric.items?.length || 0) - 1 && (
+                  {idx < (goal.successMetric?.items?.length || 0) - 1 && (
                     <div className={cn(
                       "absolute left-[5px] top-[14px] w-[1px] h-[calc(100%+4px)]",
                       item.completed ? "bg-emerald-500" : "bg-border"
@@ -622,6 +648,11 @@ const StaticGoalCard = ({ goal, allGoals = [], labels, epics = [], onEdit }: { g
   const currentEpic = goal.epicId ? epics.find(epic => epic.id === goal.epicId) : undefined;
   const currentEpicGoals = currentEpic ? allGoals.filter(item => item.epicId === currentEpic.id) : [];
   const currentEpicProgress = currentEpicGoals.length ? Math.round((currentEpicGoals.filter(item => item.lifecycleStatus === 'completed').length / currentEpicGoals.length) * 100) : 0;
+
+  const subgoals = getSubgoals(allGoals, goal.id);
+  const subgoalProgress = calculateSubgoalProgress(allGoals, goal.id);
+  const parentGoal = goal.parentId ? allGoals.find(g => g.id === goal.parentId) : undefined;
+
   const getPriorityColor = (p: Priority) => {
     switch (p) {
       case 'high': return 'text-rose-600 bg-rose-50 border-rose-200 badge-priority-high';
@@ -639,8 +670,8 @@ const StaticGoalCard = ({ goal, allGoals = [], labels, epics = [], onEdit }: { g
       )}
     >
       <div className="flex justify-between items-start mb-2">
-        <div className="flex flex-col gap-1.5 pr-6">
-          <div className="flex flex-wrap gap-1">
+        <div className="flex flex-col gap-1.5 pr-6 w-full min-w-0">
+          <div className="flex flex-col items-start gap-1">
             <div className={cn(
               "badge badge-xs font-bold uppercase tracking-wider border gap-0.5",
               getPriorityColor(goal.priority)
@@ -650,18 +681,30 @@ const StaticGoalCard = ({ goal, allGoals = [], labels, epics = [], onEdit }: { g
               {goal.priority === 'low' && <Icon name="keyboard_arrow_down" size={10} weight={700} />}
               {goal.priority}
             </div>
+            {parentGoal && (
+              <div className="badge badge-xs gap-1 border border-slate-200 bg-slate-100 font-semibold text-text-secondary dark:bg-slate-800 dark:border-slate-700 max-w-full truncate" title={`Subgoal of: ${parentGoal.title}`}>
+                <Icon name="subdirectory_arrow_right" size={10} className="shrink-0 text-text-muted" aria-hidden="true" />
+                <span className="truncate">Subgoal: {parentGoal.title}</span>
+              </div>
+            )}
+            {subgoals.length > 0 && (
+              <div className="badge badge-xs gap-1 border border-indigo-200 bg-indigo-50 font-bold text-indigo-700 dark:bg-indigo-950/60 dark:text-indigo-300 dark:border-indigo-800 max-w-full" title={`${subgoalProgress.completed} of ${subgoalProgress.total} subgoals completed`}>
+                <Icon name="account_tree" size={10} aria-hidden="true" />
+                <span>{subgoalProgress.completed}/{subgoalProgress.total} subgoals</span>
+              </div>
+            )}
+            {currentEpic && (
+              <div className="badge badge-xs gap-1 border border-violet-200 bg-violet-50 font-bold text-violet-700 badge-epic-tag max-w-full truncate">
+                <Icon name="diamond" size={10} aria-hidden="true" />
+                <span className="max-w-40 truncate">{currentEpic.name}</span>
+                <span aria-hidden="true">· {currentEpicProgress}%</span>
+                <span className="sr-only">Epic</span>
+              </div>
+            )}
             {goal.plannedForToday && (
               <div className="badge badge-xs font-bold uppercase tracking-wider border bg-amber-50 text-amber-700 border-amber-200 badge-today gap-1">
                 <Icon name="wb_sunny" size={10} filled className="text-amber-500" />
                 Today
-              </div>
-            )}
-            {currentEpic && (
-              <div className="badge badge-xs gap-1 border border-violet-200 bg-violet-50 font-bold text-violet-700 badge-epic-tag">
-                <Icon name="diamond" size={10} aria-hidden="true" />
-                <span className="max-w-28 truncate">{currentEpic.name}</span>
-                <span aria-hidden="true">· {currentEpicProgress}%</span>
-                <span className="sr-only">Epic</span>
               </div>
             )}
           </div>
@@ -736,15 +779,15 @@ const StaticGoalCard = ({ goal, allGoals = [], labels, epics = [], onEdit }: { g
             </div>
           )}
 
-          {goal.successMetric.type === 'milestones' && (
+          {goal.successMetric.type === 'milestones' && goal.successMetric.items && (
             <div className="space-y-3 pl-1">
-              {goal.successMetric.items?.map((item, idx) => (
+              {goal.successMetric.items.map((item, idx) => (
                 <div
                   key={item.id}
                   className="w-full flex items-start gap-3 text-[10px] text-text-secondary text-left relative"
                 >
                   {/* Vertical line between milestones */}
-                  {idx < (goal.successMetric.items?.length || 0) - 1 && (
+                  {idx < (goal.successMetric?.items?.length || 0) - 1 && (
                     <div className={cn(
                       "absolute left-[5px] top-[14px] w-[1px] h-[calc(100%+4px)]",
                       item.completed ? "bg-emerald-500" : "bg-border"
@@ -1245,6 +1288,11 @@ export default function App() {
   const [newLabelName, setNewLabelName] = useState('');
   const [newLabelColor, setNewLabelColor] = useState('bg-indigo-500');
   const [editingLabelId, setEditingLabelId] = useState<string | null>(null);
+  const [goalParentId, setGoalParentId] = useState<string>('');
+  const [deletingParentGoalId, setDeletingParentGoalId] = useState<string | null>(null);
+  const [parentDeletionStrategy, setParentDeletionStrategy] = useState<ParentDeletionStrategy>('promote');
+  const [reassignTargetParentId, setReassignTargetParentId] = useState<string>('');
+  const [parentCompletionPrompt, setParentCompletionPrompt] = useState<{ parentGoal: Goal } | null>(null);
 
   // Form state for projects
   const [projectName, setProjectName] = useState('');
@@ -2216,6 +2264,12 @@ export default function App() {
       if (existing && existing.title !== title) changes.push(`title to "${title}"`);
       if (existing && existing.status !== newGoalStatus) changes.push(`status to "${newGoalStatus}"`);
       if (existing && existing.priority !== priority) changes.push(`priority to "${priority}"`);
+      const cleanParentId = goalParentId || undefined;
+      if (existing && existing.parentId !== cleanParentId) {
+        const oldParentTitle = goals.find(g => g.id === existing.parentId)?.title;
+        const newParentTitle = goals.find(g => g.id === cleanParentId)?.title;
+        changes.push(`parent goal from "${oldParentTitle || 'None'}" to "${newParentTitle || 'None'}"`);
+      }
       
       const updateActivity = createActivityEvent(
         editingGoalId,
@@ -2231,6 +2285,7 @@ export default function App() {
         dueDate: dueDate ? new Date(dueDate).getTime() : undefined,
         sprintId: sprintId || undefined,
         epicId: epicId && epics.some(epic => epic.id === epicId && epic.projectId === g.projectId) ? epicId : undefined,
+        parentId: cleanParentId,
         status: newGoalStatus,
         lifecycleStatus,
         successMetric,
@@ -2242,6 +2297,7 @@ export default function App() {
     } else {
       const newGoalId = generateId();
       const newNumber = generateStableGoalNumber(goals);
+      const cleanParentId = goalParentId || undefined;
       const createdActivity = createActivityEvent(
         newGoalId,
         'created',
@@ -2255,6 +2311,7 @@ export default function App() {
         projectId: activeProjectId,
         sprintId: sprintId || undefined,
         epicId: epicId && epics.some(epic => epic.id === epicId && epic.projectId === activeProjectId) ? epicId : undefined,
+        parentId: cleanParentId,
         title,
         description,
         status: newGoalStatus,
@@ -2344,6 +2401,7 @@ export default function App() {
     setDueDate('');
     setSprintId('');
     setEpicId('');
+    setGoalParentId('');
     setLifecycleStatus('active');
     setMetricType('checklist');
     setTargetValue('');
@@ -2357,14 +2415,25 @@ export default function App() {
     setNewLabelColor('bg-indigo-500');
   };
 
-  const openNewGoalModal = (status: GoalStatus = workflowColumns[0]?.id ?? DEFAULT_WORKFLOW_COLUMNS[0].id) => {
+  const openNewGoalModal = (
+    status: GoalStatus = workflowColumns[0]?.id ?? DEFAULT_WORKFLOW_COLUMNS[0].id,
+    initialParentId?: string
+  ) => {
     setEditingGoalId(null);
     resetGoalForm();
     setNewGoalStatus(status);
+    if (initialParentId) {
+      setGoalParentId(initialParentId);
+    }
     setIsModalOpen(true);
   };
 
   const updateGoalLifecycle = (id: string, status: GoalLifecycleStatus) => {
+    const completingParent = checkAllSubgoalsCompleted(goals, id, status);
+    if (completingParent) {
+      setParentCompletionPrompt({ parentGoal: completingParent });
+    }
+
     setGoals(goals.map(g => {
       if (g.id === id) {
         let newStatus = g.status;
@@ -2400,7 +2469,30 @@ export default function App() {
   };
 
   const deleteGoal = (id: string) => {
+    const directSubgoals = getSubgoals(goals, id);
+    if (directSubgoals.length > 0) {
+      setDeletingParentGoalId(id);
+      setParentDeletionStrategy('promote');
+      const otherParents = getValidParentGoals(goals, id, activeProjectId);
+      setReassignTargetParentId(otherParents[0]?.id || '');
+      return;
+    }
     setGoals(goals.filter(g => g.id !== id));
+  };
+
+  const confirmDeleteParent = () => {
+    if (!deletingParentGoalId) return;
+    const updatedGoals = handleParentDeletion(
+      goals,
+      deletingParentGoalId,
+      parentDeletionStrategy,
+      parentDeletionStrategy === 'reassign' ? reassignTargetParentId : undefined
+    );
+    setGoals(updatedGoals);
+    if (selectedGoalId === deletingParentGoalId) {
+      setSelectedGoalId(null);
+    }
+    setDeletingParentGoalId(null);
   };
 
   const togglePlannedForToday = (id: string) => {
@@ -2711,7 +2803,7 @@ export default function App() {
       <MinibarNav
         projects={projects}
         activeProjectId={activeProjectId}
-        setActiveProjectId={setActiveProjectId}
+        setActiveProjectId={(id) => setActiveProjectId(id || '')}
         openCreateProjectModal={openCreateProjectModal}
         openEditProjectModal={openEditProjectModal}
         deleteProject={deleteProject}
@@ -3834,6 +3926,51 @@ export default function App() {
                   <p className="mt-1 text-[10px] text-slate-500">Epics can group goals across workflow stages and sprints.</p>
                 </div>
 
+                {/* Parent Goal Selection */}
+                <div>
+                  <div className="flex items-center justify-between mb-2">
+                    <label htmlFor="goal-parent" className="block text-xs font-bold uppercase tracking-wider text-slate-600">
+                      Parent Goal (Optional)
+                    </label>
+                    {goalParentId && (
+                      <span className="text-[10px] text-indigo-600 font-bold uppercase tracking-wider bg-indigo-50 px-1.5 py-0.5 rounded border border-indigo-200">
+                        Subgoal
+                      </span>
+                    )}
+                  </div>
+
+                  {editingGoalId && getSubgoals(goals, editingGoalId).length > 0 ? (
+                    <div className="p-3 rounded-xl bg-slate-100 border border-slate-200 text-xs text-slate-600 font-medium flex items-center gap-2">
+                      <ListTree size={16} className="text-indigo-600 shrink-0" />
+                      <span>This goal already has subgoals and cannot be nested under another goal.</span>
+                    </div>
+                  ) : (
+                    <select
+                      id="goal-parent"
+                      value={goalParentId}
+                      onChange={(e) => setGoalParentId(e.target.value)}
+                      className="w-full rounded-lg border border-slate-200 bg-slate-50 px-3 py-2 text-sm font-medium text-slate-900 transition-all focus:border-indigo-500 focus:outline-none focus:ring-2 focus:ring-indigo-500/20"
+                    >
+                      <option value="">None (Top-level goal)</option>
+                      {getValidParentGoals(goals, editingGoalId || undefined, activeProjectId).map(parent => (
+                        <option key={parent.id} value={parent.id} className="text-slate-900 bg-white">
+                          {parent.number ? `#${parent.number} ` : ''}{parent.title}
+                        </option>
+                      ))}
+                    </select>
+                  )}
+
+                  {goalParentId && (
+                    <div className="mt-2 flex items-center gap-2 p-2.5 bg-indigo-50 border border-indigo-200 rounded-xl text-xs text-indigo-800">
+                      <CornerDownRight size={15} className="text-indigo-600 shrink-0" />
+                      <span>
+                        This goal will become a <strong>subgoal</strong> of{' '}
+                        <strong>{goals.find(g => g.id === goalParentId)?.title}</strong> and contribute to its progress.
+                      </span>
+                    </div>
+                  )}
+                </div>
+
                 {/* Sprint Selection */}
                 <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
                   <div>
@@ -4127,8 +4264,229 @@ export default function App() {
               setLabels(prev => [...prev, newLabel]);
               return newLabel;
             }}
+            onSelectGoal={(goal) => openGoalDetails(goal)}
+            onAddSubgoal={(parentGoal) => openNewGoalModal(undefined, parentGoal.id)}
             onClose={closeGoalDetails}
           />
+        )}
+      </AnimatePresence>
+
+      {/* Parent Goal Deletion Modal */}
+      <AnimatePresence>
+        {deletingParentGoalId && (() => {
+          const targetParent = goals.find(g => g.id === deletingParentGoalId);
+          const directSubgoals = targetParent ? getSubgoals(goals, targetParent.id) : [];
+          const otherParents = getValidParentGoals(goals, deletingParentGoalId, targetParent?.projectId);
+
+          return (
+            <div className="fixed inset-0 z-[80] flex items-center justify-center p-4 overflow-y-auto">
+              <motion.div
+                initial={{ opacity: 0 }}
+                animate={{ opacity: 1 }}
+                exit={{ opacity: 0 }}
+                onClick={() => setDeletingParentGoalId(null)}
+                className="fixed inset-0 bg-slate-900/60 backdrop-blur-sm"
+              />
+              <motion.div
+                initial={{ opacity: 0, scale: 0.95, y: 16 }}
+                animate={{ opacity: 1, scale: 1, y: 0 }}
+                exit={{ opacity: 0, scale: 0.95, y: 16 }}
+                className="relative bg-white rounded-3xl shadow-2xl border border-slate-200 w-full max-w-lg p-6 text-slate-900 z-10 space-y-5"
+              >
+                <div className="flex items-start justify-between">
+                  <div className="flex items-center gap-3">
+                    <div className="p-2.5 rounded-2xl bg-rose-50 text-rose-600 border border-rose-100">
+                      <Trash2 size={20} />
+                    </div>
+                    <div>
+                      <h3 className="text-lg font-bold text-slate-900 tracking-tight">
+                        Delete Goal with Subgoals
+                      </h3>
+                      <p className="text-xs text-slate-500 mt-0.5">
+                        <strong className="text-slate-700 font-semibold">{targetParent?.title}</strong> has{' '}
+                        <strong className="text-indigo-600 font-semibold">{directSubgoals.length} subgoals</strong>.
+                      </p>
+                    </div>
+                  </div>
+                  <button
+                    type="button"
+                    onClick={() => setDeletingParentGoalId(null)}
+                    className="btn btn-sm btn-circle btn-ghost text-slate-400 hover:text-slate-600"
+                  >
+                    <X size={18} />
+                  </button>
+                </div>
+
+                <div className="space-y-3">
+                  <p className="text-xs text-slate-600 font-medium">
+                    Please choose how you want to handle its subgoals:
+                  </p>
+
+                  <div className="space-y-2">
+                    {/* Option 1: Promote */}
+                    <label
+                      onClick={() => setParentDeletionStrategy('promote')}
+                      className={cn(
+                        "flex items-start gap-3 p-3.5 rounded-2xl border cursor-pointer transition-all text-xs",
+                        parentDeletionStrategy === 'promote'
+                          ? "bg-indigo-50/70 border-indigo-300 ring-2 ring-indigo-500/20"
+                          : "bg-slate-50 border-slate-200 hover:border-slate-300"
+                      )}
+                    >
+                      <input
+                        type="radio"
+                        name="parent-delete-strategy"
+                        checked={parentDeletionStrategy === 'promote'}
+                        onChange={() => setParentDeletionStrategy('promote')}
+                        className="radio radio-primary radio-xs mt-0.5"
+                      />
+                      <div>
+                        <div className="font-bold text-slate-900">Promote to top-level goals</div>
+                        <div className="text-slate-500 mt-0.5">
+                          Keep all {directSubgoals.length} subgoals and convert them to standalone, independent goals.
+                        </div>
+                      </div>
+                    </label>
+
+                    {/* Option 2: Reassign */}
+                    {otherParents.length > 0 && (
+                      <label
+                        onClick={() => setParentDeletionStrategy('reassign')}
+                        className={cn(
+                          "flex items-start gap-3 p-3.5 rounded-2xl border cursor-pointer transition-all text-xs",
+                          parentDeletionStrategy === 'reassign'
+                            ? "bg-indigo-50/70 border-indigo-300 ring-2 ring-indigo-500/20"
+                            : "bg-slate-50 border-slate-200 hover:border-slate-300"
+                        )}
+                      >
+                        <input
+                          type="radio"
+                          name="parent-delete-strategy"
+                          checked={parentDeletionStrategy === 'reassign'}
+                          onChange={() => setParentDeletionStrategy('reassign')}
+                          className="radio radio-primary radio-xs mt-0.5"
+                        />
+                        <div className="flex-1 min-w-0">
+                          <div className="font-bold text-slate-900">Move subgoals to another parent</div>
+                          <div className="text-slate-500 mt-0.5">
+                            Reassign all {directSubgoals.length} subgoals to another top-level goal in this project.
+                          </div>
+                          {parentDeletionStrategy === 'reassign' && (
+                            <select
+                              value={reassignTargetParentId}
+                              onChange={(e) => setReassignTargetParentId(e.target.value)}
+                              className="mt-2 w-full bg-white text-slate-900 border border-slate-200 rounded-xl px-3 py-2 text-xs font-medium focus:ring-2 focus:ring-indigo-500/20 shadow-xs"
+                            >
+                              {otherParents.map(parent => (
+                                <option key={parent.id} value={parent.id}>
+                                  {parent.number ? `#${parent.number} ` : ''}{parent.title}
+                                </option>
+                              ))}
+                            </select>
+                          )}
+                        </div>
+                      </label>
+                    )}
+
+                    {/* Option 3: Cascade delete */}
+                    <label
+                      onClick={() => setParentDeletionStrategy('cascade_delete')}
+                      className={cn(
+                        "flex items-start gap-3 p-3.5 rounded-2xl border cursor-pointer transition-all text-xs",
+                        parentDeletionStrategy === 'cascade_delete'
+                          ? "bg-rose-50/70 border-rose-300 ring-2 ring-rose-500/20"
+                          : "bg-slate-50 border-slate-200 hover:border-slate-300"
+                      )}
+                    >
+                      <input
+                        type="radio"
+                        name="parent-delete-strategy"
+                        checked={parentDeletionStrategy === 'cascade_delete'}
+                        onChange={() => setParentDeletionStrategy('cascade_delete')}
+                        className="radio radio-error radio-xs mt-0.5"
+                      />
+                      <div>
+                        <div className="font-bold text-rose-700">Delete parent and all subgoals</div>
+                        <div className="text-slate-500 mt-0.5">
+                          Permanently remove this goal and its {directSubgoals.length} subgoals together.
+                        </div>
+                      </div>
+                    </label>
+                  </div>
+                </div>
+
+                <div className="flex items-center justify-end gap-2 pt-2 border-t border-slate-100">
+                  <button
+                    type="button"
+                    onClick={() => setDeletingParentGoalId(null)}
+                    className="btn btn-sm btn-ghost rounded-xl text-slate-600 hover:bg-slate-100"
+                  >
+                    Cancel
+                  </button>
+                  <button
+                    type="button"
+                    onClick={confirmDeleteParent}
+                    className={cn(
+                      "btn btn-sm rounded-xl font-bold px-4",
+                      parentDeletionStrategy === 'cascade_delete'
+                        ? "btn-error text-white"
+                        : "btn-primary"
+                    )}
+                  >
+                    {parentDeletionStrategy === 'cascade_delete' ? 'Delete All' : 'Apply & Delete'}
+                  </button>
+                </div>
+              </motion.div>
+            </div>
+          );
+        })()}
+      </AnimatePresence>
+
+      {/* Subtle Parent Completion Prompt Toast */}
+      <AnimatePresence>
+        {parentCompletionPrompt && (
+          <motion.div
+            initial={{ opacity: 0, y: 24, scale: 0.95 }}
+            animate={{ opacity: 1, y: 0, scale: 1 }}
+            exit={{ opacity: 0, y: 24, scale: 0.95 }}
+            transition={{ duration: 0.2 }}
+            className="fixed bottom-6 right-6 z-[90] max-w-md bg-slate-900 text-white rounded-2xl shadow-2xl border border-slate-700 p-4 flex items-center justify-between gap-4"
+          >
+            <div className="flex items-center gap-3 min-w-0">
+              <div className="w-8 h-8 rounded-xl bg-emerald-500/20 text-emerald-400 border border-emerald-500/30 flex items-center justify-center shrink-0">
+                <CheckCircle2 size={18} />
+              </div>
+              <div className="min-w-0">
+                <div className="text-xs font-bold text-slate-200">
+                  All subgoals completed!
+                </div>
+                <div className="text-xs text-slate-400 truncate">
+                  Mark <strong className="text-white">{parentCompletionPrompt.parentGoal.title}</strong> as complete?
+                </div>
+              </div>
+            </div>
+
+            <div className="flex items-center gap-1.5 shrink-0">
+              <button
+                type="button"
+                onClick={() => {
+                  updateGoalLifecycle(parentCompletionPrompt.parentGoal.id, 'completed');
+                  setParentCompletionPrompt(null);
+                }}
+                className="btn btn-xs bg-emerald-600 hover:bg-emerald-500 text-white border-none rounded-xl font-bold px-2.5"
+              >
+                Mark Complete
+              </button>
+              <button
+                type="button"
+                onClick={() => setParentCompletionPrompt(null)}
+                className="btn btn-xs btn-ghost text-slate-400 hover:text-white rounded-xl"
+                title="Dismiss"
+              >
+                <X size={14} />
+              </button>
+            </div>
+          </motion.div>
         )}
       </AnimatePresence>
 

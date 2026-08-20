@@ -214,6 +214,9 @@ export function formatTimelineEventMessage(item: TimelineItem | ActivityEvent): 
       return 'updated labels';
     case 'metric_changed':
       return 'updated success metric';
+    case 'parent_changed':
+      if (!item.to) return 'removed parent goal (promoted to top-level goal)';
+      return `set parent goal to "${item.to}"`;
     default:
       return 'updated this goal';
   }

@@ -22,7 +22,11 @@ import {
   Folder, 
   Briefcase, 
   Sun,
-  AlertCircle
+  AlertCircle,
+  ListTree,
+  CornerDownRight,
+  ChevronRight,
+  ArrowRight
 } from 'lucide-react';
 import { 
   Goal, 
@@ -46,6 +50,11 @@ import {
   formatRelativeTime,
   generateId 
 } from '../lib/timeline';
+import { 
+  getSubgoals, 
+  calculateSubgoalProgress, 
+  getValidParentGoals 
+} from '../lib/subgoals';
 import { MarkdownRenderer } from './MarkdownRenderer';
 import { MarkdownEditor } from './MarkdownEditor';
 import { GoalTimeline } from './GoalTimeline';
@@ -62,6 +71,8 @@ interface GoalDetailModalProps {
   onUpdateGoal: (updatedGoal: Goal, newActivity?: ActivityEvent) => void;
   onDeleteGoal: (goalId: string) => void;
   onCreateLabel?: (name: string, color: string) => Label;
+  onSelectGoal?: (goal: Goal) => void;
+  onAddSubgoal?: (parentGoal: Goal) => void;
   onClose: () => void;
 }
 
@@ -76,6 +87,8 @@ export const GoalDetailModal: React.FC<GoalDetailModalProps> = ({
   onUpdateGoal,
   onDeleteGoal,
   onCreateLabel,
+  onSelectGoal,
+  onAddSubgoal,
   onClose,
 }) => {
   // Description edit state
@@ -117,6 +130,12 @@ export const GoalDetailModal: React.FC<GoalDetailModalProps> = ({
 
   const timelineItems = buildUnifiedTimeline(goal);
   const currentProgress = calculateGoalProgress(goal);
+
+  const subgoals = getSubgoals(allGoals, goal.id);
+  const subgoalProgress = calculateSubgoalProgress(allGoals, goal.id);
+  const isSubgoal = Boolean(goal.parentId);
+  const parentGoal = goal.parentId ? allGoals.find(g => g.id === goal.parentId) : undefined;
+  const validParents = getValidParentGoals(allGoals, goal.id, goal.projectId);
 
   const currentProject = projects.find(p => p.id === goal.projectId);
   const currentSprint = sprints.find(s => s.id === goal.sprintId);
@@ -277,6 +296,39 @@ export const GoalDetailModal: React.FC<GoalDetailModalProps> = ({
       'category_changed',
       { from: oldProj, to: newProj }
     );
+  };
+
+  // Parent Goal Change
+  const handleParentGoalChange = (newParentId: string) => {
+    const cleanId = newParentId || undefined;
+    if (cleanId === goal.parentId) return;
+    const oldParentTitle = allGoals.find(g => g.id === goal.parentId)?.title;
+    const newParentTitle = allGoals.find(g => g.id === cleanId)?.title;
+    handlePropertyChange(
+      { parentId: cleanId },
+      'parent_changed',
+      { from: oldParentTitle, to: newParentTitle }
+    );
+  };
+
+  // Toggle Subgoal Completion
+  const handleToggleSubgoalCompletion = (subgoal: Goal) => {
+    const isNowCompleted = subgoal.lifecycleStatus !== 'completed';
+    const newLifecycle: GoalLifecycleStatus = isNowCompleted ? 'completed' : 'active';
+    let newStatus = subgoal.status;
+    if (isNowCompleted) {
+      newStatus = workflowColumns[workflowColumns.length - 1]?.id || subgoal.status;
+    } else {
+      newStatus = workflowColumns[0]?.id || subgoal.status;
+    }
+    const event = createActivityEvent(subgoal.id, 'lifecycle_changed', { from: subgoal.lifecycleStatus, to: newLifecycle });
+    const updatedSubgoal: Goal = {
+      ...subgoal,
+      lifecycleStatus: newLifecycle,
+      status: newStatus,
+      activities: [...(subgoal.activities || []), event],
+    };
+    onUpdateGoal(updatedSubgoal, event);
   };
 
 
@@ -623,6 +675,29 @@ export const GoalDetailModal: React.FC<GoalDetailModalProps> = ({
             {/* MAIN AREA (Left 8 Cols) */}
             <div className="lg:col-span-8 space-y-8 min-w-0">
               
+              {/* Parent Goal Reference Banner (if this is a subgoal) */}
+              {isSubgoal && parentGoal && (
+                <div className="flex items-center justify-between p-3.5 bg-indigo-50/80 border border-indigo-200/80 rounded-2xl text-xs">
+                  <div className="flex items-center gap-2 min-w-0">
+                    <CornerDownRight size={16} className="text-indigo-600 shrink-0" />
+                    <span className="text-indigo-700 font-bold shrink-0">Subgoal of:</span>
+                    <span className="text-indigo-950 font-bold truncate">
+                      {parentGoal.number ? `#${parentGoal.number} ` : ''}{parentGoal.title}
+                    </span>
+                  </div>
+                  {onSelectGoal && (
+                    <button
+                      type="button"
+                      onClick={() => onSelectGoal(parentGoal)}
+                      className="btn btn-xs btn-outline border-indigo-300 text-indigo-700 hover:bg-indigo-600 hover:text-white rounded-xl font-bold gap-1 shrink-0 ml-2"
+                    >
+                      <span>View Parent</span>
+                      <ArrowRight size={12} />
+                    </button>
+                  )}
+                </div>
+              )}
+
               {/* 1. Initial Description Card */}
               <div className="rounded-2xl border border-slate-200 bg-white shadow-sm overflow-hidden">
                 <div className="flex items-center justify-between px-4 py-2.5 bg-slate-50 border-b border-slate-200">
@@ -757,7 +832,169 @@ export const GoalDetailModal: React.FC<GoalDetailModalProps> = ({
                 </div>
               )}
 
-              {/* 3. Unified Activity & Comment Timeline */}
+              {/* 3. Subgoals Section (for top-level goals) */}
+              {!isSubgoal && (
+                <div className="rounded-2xl border border-slate-200 bg-white shadow-sm overflow-hidden p-5 space-y-4">
+                  <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 pb-3 border-b border-slate-100">
+                    <div className="flex items-center gap-2.5">
+                      <div className="p-2 rounded-xl bg-indigo-50 text-indigo-600 border border-indigo-100">
+                        <ListTree size={18} />
+                      </div>
+                      <div>
+                        <div className="flex items-center gap-2">
+                          <h3 className="text-sm font-bold text-slate-900 tracking-tight">
+                            Subgoals
+                          </h3>
+                          <span className="inline-flex items-center px-2 py-0.5 rounded-full text-xs font-bold bg-slate-100 text-slate-700 border border-slate-200">
+                            {subgoalProgress.completed} of {subgoalProgress.total} completed
+                          </span>
+                        </div>
+                        <p className="text-[11px] text-slate-500 mt-0.5">
+                          Break down this goal into smaller, manageable milestones.
+                        </p>
+                      </div>
+                    </div>
+
+                    {onAddSubgoal && (
+                      <button
+                        type="button"
+                        onClick={() => onAddSubgoal(goal)}
+                        className="btn btn-xs sm:btn-sm btn-primary rounded-xl font-bold gap-1.5 shadow-sm text-xs"
+                      >
+                        <Plus size={14} />
+                        <span>Add subgoal</span>
+                      </button>
+                    )}
+                  </div>
+
+                  {/* Compact Progress Bar */}
+                  {subgoals.length > 0 && (
+                    <div className="space-y-1.5 bg-slate-50/60 p-3 rounded-xl border border-slate-100">
+                      <div className="flex items-center justify-between text-xs font-semibold text-slate-600">
+                        <span>Subgoal Progress</span>
+                        <span className="font-extrabold text-indigo-600">{subgoalProgress.percentage}%</span>
+                      </div>
+                      <div className="w-full bg-slate-200 rounded-full h-2 overflow-hidden">
+                        <div
+                          className="bg-indigo-600 h-2 rounded-full transition-all duration-300"
+                          style={{ width: `${subgoalProgress.percentage}%` }}
+                        />
+                      </div>
+                    </div>
+                  )}
+
+                  {/* Subgoal List */}
+                  {subgoals.length > 0 ? (
+                    <div className="space-y-2">
+                      {subgoals.map(subgoal => {
+                        const isCompleted = subgoal.lifecycleStatus === 'completed';
+                        const col = workflowColumns.find(c => c.id === subgoal.status);
+                        return (
+                          <div
+                            key={subgoal.id}
+                            className={cn(
+                              "group flex items-center justify-between gap-3 p-3 rounded-xl border transition-all text-sm",
+                              isCompleted
+                                ? "bg-slate-50/70 border-slate-200/80 text-slate-500"
+                                : "bg-white border-slate-200 hover:border-indigo-200 hover:shadow-xs text-slate-800"
+                            )}
+                          >
+                            {/* Checkbox toggle & Title */}
+                            <div className="flex items-center gap-3 min-w-0 flex-1">
+                              <button
+                                type="button"
+                                onClick={(e) => {
+                                  e.stopPropagation();
+                                  handleToggleSubgoalCompletion(subgoal);
+                                }}
+                                className={cn(
+                                  "w-5 h-5 rounded-lg border flex items-center justify-center transition-all shrink-0 cursor-pointer",
+                                  isCompleted
+                                    ? "bg-emerald-500 border-emerald-500 text-white shadow-xs"
+                                    : "border-slate-300 hover:border-indigo-500 bg-white text-transparent hover:text-indigo-400"
+                                )}
+                                title={isCompleted ? "Mark incomplete" : "Mark complete"}
+                                aria-label={`Toggle completion for ${subgoal.title}`}
+                              >
+                                <Check size={12} strokeWidth={3} className={isCompleted ? "text-white" : "opacity-0 hover:opacity-100"} />
+                              </button>
+
+                              <div
+                                onClick={() => onSelectGoal && onSelectGoal(subgoal)}
+                                className="min-w-0 flex-1 cursor-pointer"
+                              >
+                                <div className="flex items-center gap-2 flex-wrap">
+                                  {subgoal.number && (
+                                    <span className="text-xs font-bold text-slate-400">
+                                      #{subgoal.number}
+                                    </span>
+                                  )}
+                                  <span className={cn(
+                                    "font-semibold text-sm leading-tight transition-colors group-hover:text-indigo-600 truncate",
+                                    isCompleted && "line-through text-slate-400 font-normal"
+                                  )}>
+                                    {subgoal.title}
+                                  </span>
+                                </div>
+                              </div>
+                            </div>
+
+                            {/* Subgoal Meta & Open action */}
+                            <div className="flex items-center gap-2 shrink-0">
+                              {col && (
+                                <span className="px-2 py-0.5 rounded-md text-[10px] font-bold uppercase tracking-wider bg-slate-100 text-slate-600 border border-slate-200">
+                                  {col.title}
+                                </span>
+                              )}
+                              <span className={cn(
+                                "px-2 py-0.5 rounded-md text-[10px] font-bold uppercase tracking-wider border",
+                                getPriorityBadgeClass(subgoal.priority)
+                              )}>
+                                {subgoal.priority}
+                              </span>
+                              <button
+                                type="button"
+                                onClick={() => onSelectGoal && onSelectGoal(subgoal)}
+                                className="btn btn-xs btn-ghost text-slate-400 group-hover:text-indigo-600 rounded-lg"
+                                title="Open subgoal details"
+                              >
+                                <ChevronRight size={14} />
+                              </button>
+                            </div>
+                          </div>
+                        );
+                      })}
+                    </div>
+                  ) : (
+                    /* Empty State */
+                    <div className="flex flex-col items-center justify-center p-6 text-center rounded-2xl border-2 border-dashed border-slate-200 bg-slate-50/50 space-y-3">
+                      <div className="w-10 h-10 rounded-2xl bg-indigo-50 text-indigo-600 flex items-center justify-center shadow-xs border border-indigo-100">
+                        <ListTree size={20} />
+                      </div>
+                      <div className="space-y-1 max-w-sm">
+                        <h4 className="text-xs font-bold text-slate-700 uppercase tracking-wider">
+                          No subgoals yet
+                        </h4>
+                        <p className="text-xs text-slate-500">
+                          Break down this goal into focused, measurable subgoals to track incremental progress.
+                        </p>
+                      </div>
+                      {onAddSubgoal && (
+                        <button
+                          type="button"
+                          onClick={() => onAddSubgoal(goal)}
+                          className="btn btn-xs btn-primary rounded-xl font-bold gap-1 text-xs shadow-xs"
+                        >
+                          <Plus size={12} />
+                          <span>Add a subgoal</span>
+                        </button>
+                      )}
+                    </div>
+                  )}
+                </div>
+              )}
+
+              {/* 4. Unified Activity & Comment Timeline */}
               <div className="space-y-4">
                 <h3 className="text-xs font-bold text-slate-400 uppercase tracking-widest px-1">
                   Activity Timeline
@@ -866,6 +1103,44 @@ export const GoalDetailModal: React.FC<GoalDetailModalProps> = ({
                     ))}
                   </select>
                 </div>
+              </div>
+
+              {/* Parent Goal Hierarchy */}
+              <div className="space-y-1.5 pt-2 border-t border-slate-200">
+                <div className="flex items-center justify-between">
+                  <label className="text-[11px] font-bold text-slate-500 uppercase tracking-wider block">
+                    Parent Goal
+                  </label>
+                  {isSubgoal && (
+                    <span className="text-[10px] text-indigo-600 font-bold uppercase tracking-wider bg-indigo-50 px-1.5 py-0.5 rounded border border-indigo-200">
+                      Subgoal
+                    </span>
+                  )}
+                </div>
+                {subgoals.length > 0 ? (
+                  <div className="p-2.5 rounded-xl bg-slate-100/80 border border-slate-200 text-xs text-slate-600 font-medium flex items-center gap-1.5">
+                    <ListTree size={14} className="text-indigo-600 shrink-0" />
+                    <span>Parent to {subgoals.length} {subgoals.length === 1 ? 'subgoal' : 'subgoals'}</span>
+                  </div>
+                ) : (
+                  <select
+                    value={goal.parentId || ''}
+                    onChange={(e) => handleParentGoalChange(e.target.value)}
+                    className="w-full bg-white text-slate-900 border border-slate-200 rounded-xl px-3 py-2 text-xs font-medium focus:ring-2 focus:ring-indigo-500/20 shadow-sm"
+                  >
+                    <option value="">None (Top-level goal)</option>
+                    {validParents.map(parentCandidate => (
+                      <option key={parentCandidate.id} value={parentCandidate.id}>
+                        {parentCandidate.number ? `#${parentCandidate.number} ` : ''}{parentCandidate.title}
+                      </option>
+                    ))}
+                  </select>
+                )}
+                {isSubgoal && parentGoal && (
+                  <p className="text-[10px] text-slate-500">
+                    Nested under <strong className="text-slate-700">{parentGoal.title}</strong>
+                  </p>
+                )}
               </div>
 
               {/* Dates: Start & Due */}

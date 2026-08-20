@@ -51,6 +51,7 @@ export function JsonGuide({ onClose }: JsonGuideProps) {
       "number": 1,
       "projectId": "proj_123",
       "sprintId": "sprint_456",
+      "parentId": "goal_000",
       "labelIds": ["label_1"],
       "title": "Design Homepage",
       "description": "Create wireframes and high-fidelity mockups.",
@@ -229,6 +230,7 @@ export function JsonGuide({ onClose }: JsonGuideProps) {
                 <li><code className="text-indigo-600 font-bold">projectId</code> (string, required): Must match an ID in the projects array.</li>
                 <li><code className="text-indigo-600 font-bold">sprintId</code> (string | null, optional): Must match an ID in the sprints array, or null.</li>
                 <li><code className="text-indigo-600 font-bold">epicId</code> (string | null, optional): Must match an ID in the epics array, or null.</li>
+                <li><code className="text-indigo-600 font-bold">parentId</code> (string | null, optional): ID of the parent goal if this is a subgoal. Subgoals cannot contain additional nested subgoals.</li>
                 <li><code className="text-indigo-600 font-bold">labelIds</code> (array of strings, optional): Array of IDs matching the labels array.</li>
                 <li><code className="text-indigo-600 font-bold">title</code> (string, required): Goal title.</li>
                 <li><code className="text-indigo-600 font-bold">description</code> (string, optional): Goal description (supports rich GitHub-flavored Markdown).</li>

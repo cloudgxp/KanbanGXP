@@ -90,7 +90,8 @@ export type ActivityEventType =
   | 'sprint_changed'
   | 'epic_changed'
   | 'labels_changed'
-  | 'metric_changed';
+  | 'metric_changed'
+  | 'parent_changed';
 
 export interface ActivityEvent {
   id: string;
@@ -130,6 +131,7 @@ export interface Goal {
   id: string;
   number?: number;
   projectId: string;
+  parentId?: string;
   sprintId?: string;
   epicId?: string;
   title: string;
